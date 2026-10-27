@@ -53,7 +53,8 @@ jobs:
             "cd '$DEPLOY_PATH' && \
              git pull --ff-only origin main && \
              docker compose --env-file .env.prod -f docker-compose.prod.yml config >/dev/null && \
-             docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build ai-api ai-worker && \
+             docker compose --env-file .env.prod -f docker-compose.prod.yml build ai-api && \
+             docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --no-build --no-deps ai-api ai-worker && \
              for attempt in \$(seq 1 36); do \
                docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T ai-api curl -fsS http://127.0.0.1:8001/health >/dev/null && exit 0; \
                sleep 5; \

@@ -112,7 +112,7 @@ CD được kích hoạt tự động theo sự kiện `workflow_run` (chỉ khi
 5. **Cập nhật dịch vụ độc lập (Zero Interruption)**:
    Chỉ cập nhật đúng container cần thiết, các hạ tầng Database, Cache, Message Queue, Reverse Proxy vẫn duy trì liên tục:
    - Backend: `docker compose ... up -d --build backend`
-   - AI: `docker compose ... up -d --build ai-api ai-worker`
+   - AI: `docker compose ... build ai-api`, sau đó `docker compose ... up -d --no-build --no-deps ai-api ai-worker`. API và worker dùng chung image `library74-ai:latest`.
    - Frontend: `docker compose ... up -d --build frontend`
 6. **Kiểm tra sức khỏe dịch vụ (Post-deployment Health Check)**:
    Hệ thống thực hiện vòng lặp thăm dò trạng thái (polling) trong tối đa 3 phút (36 lần, mỗi lần cách nhau 5 giây):
@@ -170,11 +170,23 @@ Trong quá trình xây dựng hệ thống CI/CD cho dự án, một số vấn 
 
 ---
 
+### 5.4. Giảm dung lượng và thời gian build AI
+
+- Dockerfile và AI CI cài PyTorch `2.2.2+cpu` từ CPU wheel index chính thức, thay vì kéo các thư viện CUDA. Image này dành cho triển khai chạy CPU; không hỗ trợ tăng tốc NVIDIA GPU.
+- PyTorch được cài trong một lớp Docker riêng, trước khi COPY requirements.txt. Sửa các dependency khác không buộc tải/cài lại PyTorch nếu cache còn hợp lệ. Thay phiên bản Torch vẫn phải cập nhật đồng bộ Dockerfile, bước cài trong AI CI và requirements.txt.
+- Source được COPY sau dependencies: sửa code không cài lại thư viện. `.dockerignore` loại `.env`, môi trường ảo và cache Python khỏi build context.
+- Production/dev: chỉ `ai-api` khai báo build; `ai-worker` dùng cùng image. CD build `ai-api` một lần, rồi cập nhật hai container với `--no-build --no-deps`, không khởi động lại các service phụ thuộc. Compose chạy riêng trong LMS_AI dùng cùng nguyên tắc với `api_server` và `celery_worker`.
+- `pull_policy: never` dùng image local vừa build, tránh thử kéo tên image nội bộ từ registry. Khi chạy riêng worker lần đầu, phải build API trước để có image dùng chung.
+- Volume `model_cache` được giữ nguyên. Không tự prune image, cache hoặc volume trong CD.
+- Lần đầu đổi sang bản CPU hoặc sau khi dọn cache vẫn cần tải/cài lại dependencies và có thể mất vài phút. Các lần chỉ sửa source tái sử dụng lớp thư viện; thời gian toàn bộ CD còn phụ thuộc tài nguyên VPS và khởi động model, không bảo đảm luôn dưới một phút.
+
+Kiểm chứng local ngày 28/10/2026: image Linux báo Torch `2.2.2+cpu`, không có `libtorch_cuda.so` hoặc package `nvidia-*`; `pip check` đạt. Chạy pytest trong image với PostgreSQL/pgvector riêng: 92 đạt, 3 test live opt-in skip. Smoke test Compose từ tag image chưa tồn tại xác nhận build một lần và hai container cùng image ID. Giả lập đổi source trong context tạm: build 4,26 giây, lớp apt/PyTorch/requirements đều CACHED; đây là thời gian build local, không phải SLA CD trên VPS. Cả ba file Compose đã được kiểm tra bằng cấu hình mẫu, không dùng secret production.
+
 ## 6. Đánh Giá Hiệu Quả Của Hệ Thống
 
 | Tiêu chí | Trước khi có CI/CD | Sau khi có CI/CD |
 | :--- | :--- | :--- |
-| **Thời gian triển khai** | 15 – 30 phút (thao tác tay) | **Dưới 3 phút** (hoàn toàn tự động) |
+| **Thời gian triển khai** | 15 – 30 phút (thao tác tay) | Tự động; khi cache hợp lệ nhanh hơn, khi đổi dependencies hoặc cold build có thể mất vài phút |
 | **Xác thực chất lượng code** | Phụ thuộc sự cẩn thận của dev | **100% tự động chạy test trước khi deploy** |
 | **Sao lưu cơ sở dữ liệu** | Thủ công (dễ bị quên) | **Tự động 100% trước mỗi lần deploy Backend** |
 | **Mức độ gián đoạn dịch vụ** | Thường mất kết nối khi build | **Tối thiểu hóa downtime nhờ cập nhật theo container** |

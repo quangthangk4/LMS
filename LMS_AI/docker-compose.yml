@@ -12,6 +12,8 @@ services:
       retries: 12
 
   api_server:
+    image: library74-ai:local
+    pull_policy: never
     build:
       context: .
       dockerfile: Dockerfile
@@ -43,9 +45,8 @@ services:
     command: ['/app/scripts/run_api.sh']
 
   celery_worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: library74-ai:local
+    pull_policy: never
     container_name: lms_ai_worker
     env_file:
       - .env

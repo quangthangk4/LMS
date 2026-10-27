@@ -79,6 +79,8 @@ services:
       retries: 12
 
   ai-api:
+    image: library74-ai:latest
+    pull_policy: never
     build:
       context: ./LMS_AI
     restart: unless-stopped
@@ -109,8 +111,8 @@ services:
     command: ["/app/scripts/run_api.sh"]
 
   ai-worker:
-    build:
-      context: ./LMS_AI
+    image: library74-ai:latest
+    pull_policy: never
     restart: unless-stopped
     env_file: .env.prod
     environment:
