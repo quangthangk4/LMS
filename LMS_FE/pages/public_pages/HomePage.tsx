@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
   BarChart,
@@ -14,6 +14,7 @@ import {
   Search,
   Send,
   Sparkles,
+  RefreshCw,
   Star,
   Users,
   X,
@@ -555,7 +556,7 @@ const fallbackStats: PublicLibraryStats = {
 };
 
 const HomePage = () => {
-  const { userType } = useAuth();
+  const { userType, sessionVersion } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const { language, t } = useTranslation();
@@ -569,6 +570,9 @@ const HomePage = () => {
 
   const [recommendations, setRecommendations] = useState<RecommendedPublication[]>([]);
   const [loadingRecs, setLoadingRecs] = useState(false);
+  const [refreshingRecs, setRefreshingRecs] = useState(false);
+  const [recsMessage, setRecsMessage] = useState<{ error: boolean; text: string } | null>(null);
+  const recommendationRequest = useRef(0);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [stats, setStats] = useState<PublicLibraryStats>(fallbackStats);
@@ -581,13 +585,36 @@ const HomePage = () => {
   const [reviewMessage, setReviewMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (userType !== 'student') return;
+    const request = ++recommendationRequest.current;
+    setRecommendations([]);
+    setRecsMessage(null);
+    setRefreshingRecs(false);
+    if (userType !== 'student') { setLoadingRecs(false); return; }
     setLoadingRecs(true);
     recommendationService.getRecommendations(10)
-      .then(res => { if (res.code === 200) setRecommendations(res.data ?? []); })
+      .then(res => { if (request === recommendationRequest.current && res.code === 200) setRecommendations(res.data ?? []); })
       .catch(() => {})
-      .finally(() => setLoadingRecs(false));
-  }, [userType]);
+      .finally(() => { if (request === recommendationRequest.current) setLoadingRecs(false); });
+    return () => { ++recommendationRequest.current; };
+  }, [userType, sessionVersion]);
+
+  const refreshPersonalization = async () => {
+    if (refreshingRecs || loadingRecs) return;
+    const request = ++recommendationRequest.current;
+    setRefreshingRecs(true);
+    setRecsMessage(null);
+    try {
+      const response = await recommendationService.refreshRecommendations(10);
+      if (request !== recommendationRequest.current) return;
+      if (response.code !== 200) throw new Error('Refresh failed');
+      setRecommendations(response.data ?? []);
+      setRecsMessage({ error: false, text: language === 'vi' ? 'Đã cập nhật gợi ý cá nhân hóa.' : 'Personalized recommendations updated.' });
+    } catch {
+      if (request === recommendationRequest.current) setRecsMessage({ error: true, text: language === 'vi'
+        ? 'Chưa cập nhật được gợi ý. Danh sách hiện tại được giữ lại; bạn hãy thử lại sau.'
+        : 'Could not refresh recommendations. Your current list is kept; please try again later.' });
+    } finally { if (request === recommendationRequest.current) setRefreshingRecs(false); }
+  };
 
   useEffect(() => {
     const fetchNewest = async () => {
@@ -743,7 +770,7 @@ const HomePage = () => {
       {/* Recommended Section - Gợi ý cho bạn */}
       {!isLibrarianPublic && (
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 bg-white">
-        <div className="flex justify-between items-end mb-8">
+        <div className="flex flex-wrap justify-between items-end gap-4 mb-8">
           <div>
             <div className="flex items-center space-x-2 mb-2">
               <div className="w-1 h-4 bg-purple-600 rounded-full"></div>
@@ -758,6 +785,16 @@ const HomePage = () => {
               {t('home.forYouSubtitle')}
             </p>
           </div>
+          <div className="flex flex-wrap items-center gap-4">
+          {userType === 'student' && (
+            <button type="button" onClick={refreshPersonalization} disabled={loadingRecs || refreshingRecs}
+              className="inline-flex items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-100 disabled:opacity-50 disabled:cursor-wait dark:border-purple-700 dark:bg-purple-950 dark:text-purple-200"
+              aria-busy={refreshingRecs}>
+              <RefreshCw size={16} className={refreshingRecs ? 'animate-spin' : ''} />
+              {refreshingRecs ? (language === 'vi' ? 'Đang cập nhật…' : 'Updating…')
+                : (language === 'vi' ? 'Cập nhật cá nhân hóa' : 'Refresh personalization')}
+            </button>
+          )}
           <Link
             to={`${publicPrefix}/search`}
             className="text-sm font-medium text-blue-600 hover:text-blue-800 flex items-center group"
@@ -768,8 +805,9 @@ const HomePage = () => {
               className="ml-1 group-hover:translate-x-1 transition-transform"
             />
           </Link>
+          </div>
         </div>
-
+        {recsMessage && <p role={recsMessage.error ? 'alert' : 'status'} className={`mb-4 text-sm ${recsMessage.error ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300'}`}>{recsMessage.text}</p>}
         {!userType ? (
           <p className="text-sm text-gray-400 italic">{t('home.loginForRecommendations')}</p>
         ) : loadingRecs ? (

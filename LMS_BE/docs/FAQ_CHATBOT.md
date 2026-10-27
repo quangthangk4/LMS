@@ -1,6 +1,6 @@
 # Trợ lý tra cứu Library74 — RAG và công cụ chỉ đọc
 
-Cập nhật: 27/10/2026. Mô tả mã nguồn hiện tại, chưa xác nhận triển khai production. Phạm vi được chốt tại [CHATBOT_AI_FINAL_PROPOSAL.md](CHATBOT_AI_FINAL_PROPOSAL.md). Hai tài liệu thảo luận/kế hoạch RAG sơ bộ đã được loại bỏ để tránh dùng nhầm thiết kế cũ.
+Cập nhật: 28/10/2026. Mô tả mã nguồn hiện tại, chưa xác nhận triển khai production. Phạm vi được chốt tại [CHATBOT_AI_FINAL_PROPOSAL.md](CHATBOT_AI_FINAL_PROPOSAL.md). Ngữ cảnh Redis và cache gợi ý 8 tiếng được mô tả tại [REDIS_SHARED_STATE.md](REDIS_SHARED_STATE.md).
 
 ## 1. Phạm vi và luồng xử lý
 
@@ -12,14 +12,14 @@ Cập nhật: 27/10/2026. Mô tả mã nguồn hiện tại, chưa xác nhận t
 
 Không crawl, không mở Internet/source code, không hỏi đáp nội dung chương/PDF. Không có công cụ ghi dữ liệu, giao dịch/thanh toán, tra cứu tài khoản khác hoặc nghiệp vụ Admin/thủ thư.
 
-1. FE chỉ gửi câu hỏi hiện tại (tối đa 500 ký tự) và ngôn ngữ.
+1. FE gửi câu hỏi hiện tại (tối đa 500 ký tự), ngôn ngữ và UUID hội thoại; BE lấy ngữ cảnh ngắn hạn từ Redis theo chủ thể.
 2. Khớp câu hỏi/alias chuẩn: trả nội dung có cấu trúc, không gọi LLM. Chủ đề quy định/cọc/phạt/nhận/gia hạn được kèm snapshot chính sách hiện hành.
-3. Chưa khớp: Gemini đề xuất tối đa một công cụ từ schema. BE kiểm tra allowlist, tham số và quyền trước khi thực thi.
+3. Chưa khớp: Gemini đề xuất một hoặc nhiều công cụ từ schema. BE kiểm tra allowlist, tham số và quyền trước từng lần thực thi. Giao tiếp xã hội (chào hỏi, giới thiệu khả năng, cảm ơn) được phân loại linh hoạt rồi trả nội dung công khai do BE kiểm soát, không cần alias câu hỏi chính xác.
 4. Nhánh hướng dẫn: vector search đúng version/ngôn ngữ → BE kiểm tra chunk thuộc nguồn → Gemini diễn đạt chỉ từ nguồn → kiểm tra đầu ra.
-5. Nhánh dữ liệu: BE SELECT và dựng thẻ trực tiếp. **Kết quả cá nhân không gửi sang Gemini**. Model vẫn nhận câu hỏi người dùng để chọn công cụ; không nhận JWT, lịch sử hội thoại hoặc toàn bộ hồ sơ.
+5. Nhánh dữ liệu: BE SELECT, dựng lời đáp và thẻ trực tiếp. **Kết quả cá nhân không gửi sang Gemini**, kể cả trong vòng tool tiếp theo/lịch sử Redis. Model nhận câu hỏi và ngữ cảnh công khai ngắn để chọn công cụ; không nhận JWT hoặc toàn bộ hồ sơ. Hỏi khả dụng được trả Có/Không kèm đầu sách, cơ sở, số lượng; phân biệt không có đầu sách với có đầu sách nhưng hết bản sao.
 6. Ngoài phạm vi/thiếu dữ liệu/lỗi: từ chối, hỏi lại hoặc báo chưa tra cứu được; không tạo số liệu hay câu trả lời ngoài nguồn.
 
-Không có vòng lặp agent. Mỗi câu hỏi có một lượt phân loại và, riêng RAG, thêm một lượt diễn đạt; fallback provider có thể tạo thêm HTTP request.
+Vòng điều phối giới hạn tối đa 3 lượt lập kế hoạch, 4 lần thực thi tool, ngân sách xử lý dịch vụ AI khoảng 25 giây. Khóa hội thoại chống xử lý trùng. Không gọi thêm model chỉ để nói DONE sau một truy vấn độc lập đã đủ. Hướng dẫn nhiều chủ đề được tổng hợp từ nhiều nguồn (tối đa 4 phần), ví dụ quên mật khẩu và đăng nhập. Fallback provider có thể thêm HTTP request trong ngân sách còn lại.
 
 Câu trả lời RAG gồm summary, steps, bullets, note. BE kiểm tra ID nguồn, trích dẫn nguyên văn, kiểu/độ dài, số liệu có trong nguồn và không nhận URL/HTML tự sinh. Nếu chọn nguồn hợp lệ nhưng phần diễn đạt không đạt kiểm tra, dùng nội dung nguồn của chunk đó. Các kiểm tra giảm sai sót, không chứng minh mọi câu diễn đạt đều đúng ngữ nghĩa.
 
@@ -76,7 +76,7 @@ BE kiểm tra lại topic, sourcePath, điểm hữu hạn và chunk thực sự
 
 Schema không có userId/MSSV, URL hoặc SQL. BE từ chối tham số thừa/sai kiểu, ID vượt Long, ngày/trạng thái sai, page ngoài 0..1000. SELECT dùng bind parameters; các đoạn SQL ghép chỉ từ whitelist cố định. Adapter dùng transaction readOnly, không gọi controller/use case có tracking/ghi dữ liệu.
 
-Mỗi trang tối đa 5 thẻ; page bắt đầu 0. Tổng count/tiền tính trên toàn bộ bộ lọc, không cộng trang đầu. Chưa có bộ nhớ hội thoại: khi hỏi trang tiếp phải nêu lại chủ đề/tên sách. Nhiều đầu sách phù hợp được trả danh sách để người dùng chỉ rõ tên/ISBN/mã. Khả dụng là snapshot, không giữ chỗ.
+Mỗi trang/tool tối đa 5 thẻ; page bắt đầu 0. Tổng count/tiền tính trên toàn bộ bộ lọc. Redis giữ tối đa 6 lượt trong 30 phút không hoạt động và tham chiếu đầu sách/cơ sở công khai; không coi số liệu trong lịch sử là tồn kho hiện tại. Nhiều đầu sách phù hợp được trả danh sách để người dùng chỉ rõ tên/ISBN/mã. Khả dụng là snapshot, không giữ chỗ.
 
 ## 5. API và quyền
 
@@ -86,12 +86,14 @@ Mỗi trang tối đa 5 thẻ; page bắt đầu 0. Tổng count/tiền tính tr
 | GET /api/v1/chatbot/faqs?language=vi | Public; câu hỏi gợi ý |
 | POST /api/v1/chatbot/messages | Public; luôn không có identity kể cả body cố chèn userId |
 | POST /api/v1/chatbot/my/messages | JWT bắt buộc; tool cá nhân chỉ dành STUDENT/FACULTY |
+| DELETE /api/v1/chatbot/conversations/{uuid} | Xóa ngữ cảnh public có UUID tương ứng |
+| DELETE /api/v1/chatbot/my/conversations/{uuid} | JWT bắt buộc; chỉ làm mất hiệu lực ngữ cảnh của mình |
 
-Body chat chỉ có message và language (vi/en). Không gửi lịch sử, identity hoặc token trong body. FE dùng Authorization hiện có của Axios cho endpoint riêng; public endpoint vẫn tokenless.
+Body chat gồm message, language (vi/en), conversationId (UUID tùy chọn để tương thích client cũ). Không gửi lịch sử, identity hoặc token trong body. FE dùng Authorization hiện có của Axios cho endpoint riêng; public endpoint vẫn tokenless.
 
 Hai POST chat là truy vấn: được loại khỏi audit filter dành cho thao tác ghi, không tạo audit_logs cho từng câu hỏi. Lỗi validation trả 400 chung, tránh logger MVC ghi rejected field chứa nội dung chat. Audit các endpoint thay đổi nghiệp vụ khác giữ nguyên.
 
-Response giữ status, faqId, answer, sourceTitle, sourcePath, content; thêm sources, cards, total, page, retrievedAt. Các trạng thái: ANSWERED, CLARIFY, AUTH_REQUIRED, UNSUPPORTED, UNAVAILABLE. Private endpoint chưa đăng nhập trả HTTP 401; AI/index lỗi trả trạng thái câu trả lời, không dữ liệu giả. Cache-Control: no-store.
+Response giữ các trường cũ, bổ sung sections cho nhiều kết quả, conversationId, contextReset và reasonCode. Trạng thái gồm ANSWERED, CLARIFY, AUTH_REQUIRED, UNSUPPORTED, UNAVAILABLE, NO_MATCH. NO_MATCH chỉ là không tìm thấy thông tin phù hợp; lỗi index/version, timeout, hết quota AI có reasonCode riêng và thông báo lỗi rõ ràng. Khi có nguồn nhưng model diễn đạt lỗi, trả nội dung nguồn kèm thông báo. FE hiển thị “Đang suy nghĩ…”. Private endpoint chưa đăng nhập trả HTTP 401. Tất cả response chat có Cache-Control: no-store.
 
 Các đường BE → AI nội bộ:
 - GET /internal/chatbot/knowledge/status
@@ -159,12 +161,12 @@ Bao phủ: allowlist/identity injection/JWT/ownership; không gửi private resu
 
 Hai test BorrowFlow và Reservation đã đổi image PostgreSQL test sang pgvector để chạy migration mới; không xóa hoặc nới assertion nghiệp vụ cũ.
 
-Kết quả chạy local ngày 27/10/2026:
+Kết quả chạy local ngày 28/10/2026:
 
 | Kiểm tra | Kết quả |
 |---|---|
-| Toàn bộ Maven test, gồm PostgreSQL/Testcontainers và Flyway V63 | 64 lớp/suite, 383 test đạt, 0 lỗi, 0 skip |
-| Jest FE | 34 suite, 221 test đạt |
+| Maven test, gồm PostgreSQL/Redis Testcontainers và Flyway V63 | 64 lớp/suite, 401 test đạt, 0 lỗi, 0 skip (toàn bộ suite và lượt kiểm tra bổ sung) |
+| Jest FE | 36 suite, 229 test đạt |
 | TypeScript và Vite production build | Đạt; còn cảnh báo bundle lớn có sẵn |
 | Pytest AI, có database pgvector riêng | 92 đạt, 3 live API test opt-in skip |
 

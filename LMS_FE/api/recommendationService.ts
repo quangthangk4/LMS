@@ -14,6 +14,9 @@ export interface RecommendedPublication {
 }
 
 const recommendationService = {
+  refreshRecommendations: async (limit = 10): Promise<ApiResponse<RecommendedPublication[]>> => {
+    return axiosInstance.post('/recommendations/refresh', null, { params: { limit } });
+  },
   getRecommendations: async (limit = 10): Promise<ApiResponse<RecommendedPublication[]>> => {
     return axiosInstance.get(`/recommendations?limit=${limit}`);
   },

@@ -263,6 +263,11 @@ class KnowledgeStore:
         vector = self.model.encode(text, normalize_embeddings=True)
         vector = vector.tolist() if hasattr(vector, "tolist") else list(vector)
         with self.connection() as connection, connection.cursor() as cursor:
+            cursor.execute("""SELECT 1 FROM ai_engine.chatbot_knowledge_generations
+                WHERE active AND corpus_version=%s AND model_id=%s AND pipeline_version=%s""",
+                (request.version, self.model_id, PIPELINE))
+            if cursor.fetchone() is None:
+                raise HTTPException(409, "Knowledge index is not ready for the requested source version")
             cursor.execute("""SELECT c.topic_id,c.content,c.source_path,1-(c.embedding <=> %s::vector) AS score,c.title
                 FROM ai_engine.chatbot_knowledge_chunks c
                 JOIN ai_engine.chatbot_knowledge_generations g ON g.id=c.generation_id

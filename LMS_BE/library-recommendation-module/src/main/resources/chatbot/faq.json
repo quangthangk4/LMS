@@ -1,4 +1,4 @@
-{"revision": 1, "entries": [
+{"revision": 2, "entries": [
   {
     "id": "creator",
     "sourcePath": "/publicpage/about",
@@ -102,7 +102,7 @@
     "sourcePath": "/publicpage/guide",
     "vi": {
       "question": "Làm thế nào để tìm sách?",
-      "answer": "Dùng ô tìm kiếm để nhập tên sách, tác giả, ISBN hoặc nhu cầu tìm tài liệu. Kết hợp các bộ lọc đang có và mở chi tiết sách để xem thông tin, cơ sở và bản sao. Chatbot này chỉ hướng dẫn, không tra cứu danh mục hoặc số lượng sách hiện tại.",
+      "answer": "Dùng ô tìm kiếm để nhập tên sách, tác giả, ISBN hoặc nhu cầu tìm tài liệu. Kết hợp các bộ lọc đang có và mở chi tiết sách để xem thông tin, cơ sở và bản sao. Bạn cũng có thể hỏi trợ lý tên sách và cơ sở để tra cứu bản sao còn sẵn; kết quả không có nghĩa sách đã được giữ chỗ.",
       "aliases": [
         "Cách tìm kiếm sách?",
         "Tìm sách theo tên tác giả ở đâu?"
@@ -110,7 +110,7 @@
     },
     "en": {
       "question": "How do I find a book?",
-      "answer": "Use search with a title, author, ISBN or learning need, apply the available filters, and open book details to inspect publication and copy information. This assistant provides instructions only and cannot query the current catalog or stock.",
+      "answer": "Use search with a title, author, ISBN or learning need, apply the available filters, and open book details to inspect publication and copy information. You can also ask the assistant about a book and campus to check available copies; lookup does not reserve a copy.",
       "aliases": [
         "How do I search for books?"
       ]
@@ -218,7 +218,7 @@
     "sourcePath": "/publicpage/guide",
     "vi": {
       "question": "Xem sách đang mượn và hạn trả ở đâu?",
-      "answer": "Đăng nhập rồi mở Sách của tôi để xem các giao dịch và hạn trả hiển thị trên tài khoản. Xem mục đặt trước cho hàng đợi/phiếu liên quan. Chatbot không đọc danh sách cá nhân; vui lòng kiểm tra trực tiếp trên màn hình hoặc hỏi thủ thư.",
+      "answer": "Đăng nhập rồi mở Sách của tôi để xem các giao dịch và hạn trả hiển thị trên tài khoản. Xem mục đặt trước cho hàng đợi/phiếu liên quan. Khi đăng nhập bằng tài khoản bạn đọc, bạn cũng có thể hỏi trợ lý về sách đang mượn và lịch sử mượn của chính mình.",
       "aliases": [
         "Cách xem lịch sử mượn?",
         "Hạn trả sách xem ở đâu?"
@@ -226,7 +226,7 @@
     },
     "en": {
       "question": "Where can I check my loans and due dates?",
-      "answer": "Sign in and open My books to view the transactions and due dates shown for your account. Check Reservations for related requests. This assistant does not read personal records; inspect the account page or ask a librarian.",
+      "answer": "Sign in and open My books to view the transactions and due dates shown for your account. Check Reservations for related requests. Signed-in readers can also ask the assistant about their own current loans and borrowing history.",
       "aliases": [
         "Where do I find my borrowing history?"
       ]
@@ -237,7 +237,7 @@
     "sourcePath": "/publicpage/faq",
     "vi": {
       "question": "Xem quy định mượn và tiền cọc ở đâu?",
-      "answer": "Xem mục FAQ/hướng dẫn và thông tin chính sách hiển thị khi mượn, nhận sách hoặc gia hạn. Mức cọc, số ngày mượn, giới hạn lượt và mức phạt có thể thay đổi theo chính sách. Chatbot không truy cập cấu hình hiện tại nên không cung cấp các con số đang áp dụng.",
+      "answer": "Xem mục FAQ/hướng dẫn và thông tin chính sách hiển thị khi mượn, nhận sách hoặc gia hạn. Mức cọc, số ngày mượn, giới hạn lượt và mức phạt có thể thay đổi theo chính sách. Bạn có thể hỏi trợ lý để tra cứu chính sách hiện hành; điều kiện áp dụng cho từng giao dịch cần kiểm tra trên màn hình mượn sách.",
       "aliases": [
         "Tìm quy định mượn trả ở đâu?",
         "Cách xem chính sách thư viện?"
@@ -245,7 +245,7 @@
     },
     "en": {
       "question": "Where can I find borrowing and deposit rules?",
-      "answer": "Read the FAQ/guide and policy information shown during borrowing, pickup or renewal. Deposit amounts, loan periods, limits and fines may change with policy. This assistant cannot access the current configuration and does not quote current numeric limits.",
+      "answer": "Read the FAQ/guide and policy information shown during borrowing, pickup or renewal. Deposit amounts, loan periods, limits and fines may change with policy. You can ask the assistant for the current policy; individual transaction eligibility must be checked on the borrowing screen.",
       "aliases": [
         "Where are the library rules?"
       ]
@@ -256,7 +256,7 @@
     "sourcePath": "/publicpage/guide",
     "vi": {
       "question": "Làm thế nào để xem và thanh toán phí phạt?",
-      "answer": "Đăng nhập và mở mục Phí phạt để xem thông tin và lựa chọn thanh toán được cung cấp, hoặc liên hệ thủ thư tại quầy. Với chuyển khoản payOS, kiểm tra trạng thái hệ thống thay vì chỉ dựa vào ảnh chuyển tiền. Chatbot không đọc công nợ, không tạo QR và không xác nhận bạn đã thanh toán.",
+      "answer": "Đăng nhập và mở mục Phí phạt để xem thông tin và lựa chọn thanh toán được cung cấp, hoặc liên hệ thủ thư tại quầy. Với chuyển khoản payOS, kiểm tra trạng thái hệ thống thay vì chỉ dựa vào ảnh chuyển tiền. Bạn có thể hỏi trợ lý để xem phí phạt của chính mình; trợ lý không tạo QR hoặc xử lý thanh toán.",
       "aliases": [
         "Cách nộp phí phạt?",
         "Phí phạt xem ở đâu?"
@@ -264,7 +264,7 @@
     },
     "en": {
       "question": "How do I view and pay fines?",
-      "answer": "Sign in and open Fines to check the information and payment options, or contact the library desk. For payOS payments, verify the system status rather than relying only on a transfer screenshot. This assistant cannot read debts, create QR codes or confirm payment.",
+      "answer": "Sign in and open Fines to check the information and payment options, or contact the library desk. For payOS payments, verify the system status rather than relying only on a transfer screenshot. You can ask the assistant to view your own fines; it cannot create QR codes or process payments.",
       "aliases": [
         "How do I pay a library fine?"
       ]
@@ -332,7 +332,7 @@
     "sourcePath": "/publicpage/guide",
     "vi": {
       "question": "Xem thông báo của thư viện ở đâu?",
-      "answer": "Sau khi đăng nhập, mở biểu tượng hoặc mục Thông báo để xem thông tin liên quan. Khi nhận thông báo có sách hoặc sắp đến hạn, mở giao dịch để kiểm tra trạng thái và thời hạn hiện tại. Chatbot không đọc thông báo của bạn.",
+      "answer": "Sau khi đăng nhập, mở biểu tượng hoặc mục Thông báo để xem thông tin liên quan. Khi nhận thông báo có sách hoặc sắp đến hạn, mở giao dịch để kiểm tra trạng thái và thời hạn hiện tại. Bạn có thể hỏi trợ lý để xem thông báo của mình; việc tra cứu qua trợ lý không đánh dấu thông báo là đã đọc.",
       "aliases": [
         "Cách xem thông báo?",
         "Thông báo nhận sách ở đâu?"
@@ -340,7 +340,7 @@
     },
     "en": {
       "question": "Where can I read library notifications?",
-      "answer": "After signing in, open the notification icon or page. For pickup or due-date notices, open the associated record to check its current status and deadline. This assistant does not access your notifications.",
+      "answer": "After signing in, open the notification icon or page. For pickup or due-date notices, open the associated record to check its current status and deadline. You can ask the assistant to view your own notifications; looking them up does not mark them as read.",
       "aliases": [
         "How do I view notifications?"
       ]
@@ -370,7 +370,7 @@
     "sourcePath": "/publicpage/privacy-policy",
     "vi": {
       "question": "Chatbot có đọc tài khoản và dữ liệu cá nhân không?",
-      "answer": "Trợ lý dùng hướng dẫn, chính sách và thông tin sách của Library74. Khi đăng nhập bằng tài khoản bạn đọc, bạn có thể tra cứu sách đang mượn, lịch sử, phí phạt, đặt trước, yêu thích và thông báo của chính mình. Trợ lý chỉ đọc, không thực hiện giao dịch hoặc đọc dữ liệu của người khác. Câu hỏi và hướng dẫn tham khảo có thể được gửi đến dịch vụ AI; dữ liệu cá nhân tra cứu được hiển thị trực tiếp từ hệ thống. Không gửi mật khẩu hoặc mã xác minh trong câu hỏi. Hội thoại không được lưu vào database của chatbot.",
+      "answer": "Trợ lý dùng hướng dẫn, chính sách và thông tin sách của Library74. Khi đăng nhập bằng tài khoản bạn đọc, bạn có thể tra cứu sách đang mượn, lịch sử, phí phạt, đặt trước, yêu thích và thông báo của chính mình. Trợ lý chỉ đọc, không thực hiện giao dịch hoặc đọc dữ liệu của người khác. Câu hỏi, ngữ cảnh hội thoại gần đây và hướng dẫn tham khảo có thể được gửi đến dịch vụ AI; kết quả tra cứu cá nhân được hiển thị trực tiếp từ hệ thống và không gửi đến AI. Không gửi mật khẩu hoặc mã xác minh trong câu hỏi. Ngữ cảnh tối đa sáu lượt hỏi đáp được giữ tạm trong Redis, hết hạn sau 30 phút không hoạt động; xóa hội thoại hoặc đăng xuất sẽ làm mất hiệu lực ngữ cảnh.",
       "aliases": [
         "Chatbot có thể làm gì?",
         "Trợ lý có truy cập database không?"
@@ -378,7 +378,7 @@
     },
     "en": {
       "question": "Does this chatbot access account records?",
-      "answer": "The assistant uses Library74 guidance, policies and book information. Signed-in readers can look up their own loans, history, fines, reservations, wishlist and notifications. It is read-only and cannot perform transactions or access other people's records. Questions and reference guidance may be sent to an AI provider; personal lookup results are displayed directly from the system. Do not enter passwords or verification codes. The chatbot does not store conversations in a database.",
+      "answer": "The assistant uses Library74 guidance, policies and book information. Signed-in readers can look up their own loans, history, fines, reservations, wishlist and notifications. It is read-only and cannot perform transactions or access other people's records. Questions, recent conversation context and reference guidance may be sent to an AI provider; personal lookup results are displayed directly from the system and are not sent to AI. Do not enter passwords or verification codes. Up to six turns of context are held temporarily in Redis, expiring after 30 minutes of inactivity; clearing the conversation or signing out invalidates it.",
       "aliases": [
         "What can this assistant do?"
       ]

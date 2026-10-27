@@ -1,6 +1,6 @@
 # Đề xuất cuối cùng: Trợ lý tra cứu Library74
 
-Ngày tổng hợp: **27/10/2026**.
+Ngày cập nhật: **28/10/2026**. Bổ sung hội thoại nhiều tool, phân biệt lỗi, Redis context và cache recommendation 8 tiếng theo [REDIS_SHARED_STATE.md](REDIS_SHARED_STATE.md).
 
 Đây là phạm vi đã thống nhất và dùng để hiện thực trợ lý tra cứu. Mã nguồn BE/AI/FE đã được bổ sung theo phạm vi này; hướng dẫn cấu hình, giới hạn và kiểm thử nằm tại [FAQ_CHATBOT.md](FAQ_CHATBOT.md). Hai tài liệu thảo luận/kế hoạch sơ bộ đã được loại bỏ để tránh dùng nhầm thiết kế cũ. Chưa triển khai lên production.
 
@@ -127,7 +127,7 @@ Java BE xác định ngữ cảnh xác thực và bộ tool được phép
 - Gemini chọn chức năng và diễn đạt; không có kết nối DB, không tự thực thi Java hoặc sở hữu quyền truy cập dữ liệu.
 - Tái sử dụng use case qua giao diện phù hợp, không tự gọi vòng HTTP nếu cùng tiến trình. Các kiểm tra chỉ đặt ở controller cần được bảo đảm lại ở biên thực thi tool.
 - Cho phép chuỗi đọc có mục đích, ví dụ tìm tên sách → lấy chi tiết/khả dụng. Có giới hạn kỹ thuật số vòng gọi, kết quả và timeout để tránh vòng lặp vô hạn; không thêm lại hạn mức request/phút/ngày tự đặt đã bị yêu cầu bỏ.
-- Không xây bộ nhớ hội thoại dài hạn. Với câu hỏi phụ thuộc tham chiếu nhưng không xác định được sách/giao dịch, hỏi lại hoặc cho chọn; không hứa tự nhớ mọi đối tượng qua các lượt.
+- Không xây bộ nhớ hội thoại dài hạn. Redis giữ tối đa 6 lượt trong 30 phút không hoạt động, tách theo JWT/UUID; chỉ lưu phản hồi công khai và tham chiếu đầu sách/cơ sở, không gửi kết quả cá nhân sang model. Xóa hội thoại/đăng xuất làm mất hiệu lực context. Không xác định được sách thì hỏi lại. Tối đa 3 vòng lập kế hoạch và 4 lần thực thi tool, ngân sách dịch vụ AI khoảng 25 giây.
 
 ## 8. Tính đúng, quyền riêng tư và trải nghiệm
 

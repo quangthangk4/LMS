@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/chatbot")
 public class FaqChatbotController {
     public record Question(@NotBlank @Size(max = 500) String message,
-        @Pattern(regexp = "vi|en") String language) {}
+        @Pattern(regexp = "vi|en") String language, java.util.UUID conversationId) {}
 
     // Default MVC validation logging includes rejected field values. Chat questions may
     // contain private text, so return a generic error without logging the request.
@@ -44,7 +44,8 @@ public class FaqChatbotController {
     @PostMapping("/messages")
     public ResponseEntity<ApiResponseApp<ChatbotReply>> answer(@Valid @RequestBody Question request) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-            .body(ApiResponseApp.success(chat.answer(request.message().trim(), request.language(), null)));
+            .body(ApiResponseApp.success(request.conversationId()==null ? chat.answer(request.message().trim(),request.language(),null)
+                : chat.answer(request.message().trim(), request.language(), null,request.conversationId())));
     }
 
     @PostMapping("/my/messages")
@@ -52,6 +53,18 @@ public class FaqChatbotController {
         if (!security.isAuthenticated()) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED);
         Long readerId = security.hasAnyRole("STUDENT", "FACULTY") ? security.getCurrentUserId() : null;
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-            .body(ApiResponseApp.success(chat.answer(request.message().trim(), request.language(), readerId)));
+            .body(ApiResponseApp.success(request.conversationId()==null ? chat.answer(request.message().trim(),request.language(),readerId)
+                : chat.answer(request.message().trim(), request.language(), readerId,request.conversationId())));
+    }
+
+    @DeleteMapping("/conversations/{id}")
+    public ResponseEntity<Void> clear(@PathVariable java.util.UUID id) {
+        chat.clear(id,null); return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+    }
+    @DeleteMapping("/my/conversations/{id}")
+    public ResponseEntity<Void> clearPersonal(@PathVariable java.util.UUID id) {
+        if(!security.isAuthenticated()) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED);
+        Long readerId=security.hasAnyRole("STUDENT","FACULTY")?security.getCurrentUserId():null;
+        chat.clear(id,readerId); return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
     }
 }

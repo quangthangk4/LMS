@@ -14,6 +14,7 @@ export const isPublicRequest = (config?: InternalAxiosRequestConfig | any): bool
 
   if (method === 'post' && pathname === '/ai/semantic-search') return true;
   if (method === 'post' && pathname === '/chatbot/messages') return true;
+  if (method === 'delete' && /^\/chatbot\/conversations\/[0-9a-f-]{36}$/i.test(pathname)) return true;
 
   if (method !== 'get') return false;
   if (pathname === '/chatbot/faqs') return true;

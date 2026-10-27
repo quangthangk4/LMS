@@ -7,4 +7,6 @@ public interface GetRecommendationsUseCase {
     List<RecommendationResponse> execute(Long userId, int limit);
 
     List<RecommendationResponse> execute(Long userId, String faculty, int limit);
+
+    List<RecommendationResponse> refresh(Long userId, int limit);
 }

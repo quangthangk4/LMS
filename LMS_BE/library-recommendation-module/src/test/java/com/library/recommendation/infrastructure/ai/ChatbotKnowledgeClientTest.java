@@ -61,6 +61,14 @@ class ChatbotKnowledgeClientTest {
         response("search", Map.of("version", "a".repeat(64), "hits", List.of(hit(entry.vi().answer(), entry.sourcePath(), .9))));
         assertThat(client.retrieve("guidance", "vi")).isEmpty();
     }
+    @Test void emptySearchAndIndexFailureHaveDifferentStates() {
+        response("search",Map.of("version",catalog.version(),"hits",List.of()));
+        var empty=client.retrieveResult("guidance","vi");
+        assertThat(empty.entries()).isEmpty(); assertThat(empty.failure()).isNull();
+        server.removeContext("/internal/chatbot/knowledge/search");
+        server.createContext("/internal/chatbot/knowledge/search",exchange->{exchange.sendResponseHeaders(409,-1);exchange.close();});
+        assertThat(client.retrieveResult("guidance","vi").failure()).isEqualTo("KNOWLEDGE_NOT_READY");
+    }
 
     @Test void lexicalRetrievalStillRequiresAuthoritativeContentAndValidScores() {
         var entry = catalog.entries().get(0);

@@ -47,6 +47,43 @@ class FaqIntentSelectorTest {
         return draft == null ? null : draft.faqId();
     }
 
+    @Test void plannerAcceptsMultipleNativeCallsAndPreservesThoughtSignatures() throws Exception {
+        var content=Map.of("role","model","parts",List.of(
+            Map.of("thoughtSignature","opaque-signature","functionCall",Map.of("name","search_library_help","args",Map.of("query","forgot password"))),
+            Map.of("functionCall",Map.of("name","search_library_help","args",Map.of("query","login")))));
+        server.expect(requestTo(url(PRIMARY)))
+            .andExpect(jsonPath("$.toolConfig.functionCallingConfig.mode").value("ANY"))
+            .andExpect(jsonPath("$.tools[0].functionDeclarations.length()").value(8))
+            .andRespond(withSuccess(mapper.writeValueAsString(Map.of("candidates",List.of(Map.of("finishReason","STOP","content",content)))),MediaType.APPLICATION_JSON));
+        var plan=selector.plan("Reset my password and sign in",com.library.recommendation.application.chatbot.ChatbotTool.available(false),"en",List.of(),"");
+        assertThat(plan.failure()).isNull(); assertThat(plan.calls()).hasSize(2);
+        assertThat(plan.modelContent().path("parts").path(0).path("thoughtSignature").asText()).isEqualTo("opaque-signature");
+        server.verify();
+    }
+    @Test void providerQuotaAndMalformedOutputAreExplicitFailures() throws Exception {
+        server.expect(requestTo(url(PRIMARY))).andRespond(withStatus(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS));
+        server.expect(requestTo(url(BACKUP))).andRespond(withStatus(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS));
+        var plan=selector.plan("Hello",com.library.recommendation.application.chatbot.ChatbotTool.available(false),"en",List.of(),"");
+        assertThat(plan.failure()).isEqualTo("AI_QUOTA_EXCEEDED");
+        server.verify();
+    }
+    @Test void compositionSupportsSeveralGroundedTopicsWithServerValidatedSources() throws Exception {
+        var borrow=catalog.find("borrow").orElseThrow(); var login=catalog.find("login").orElseThrow();
+        var answers=List.of(Map.of("faqId","borrow","summary","You can request a book on Library74.","steps",List.of(),"bullets",List.of(),"note","","evidence",List.of(borrow.en().answer().substring(0,25))),
+            Map.of("faqId","login","summary","Sign in using your registered account.","steps",List.of(),"bullets",List.of(),"note","","evidence",List.of(login.en().answer().substring(0,25))));
+        server.expect(anything()).andRespond(withSuccess(envelope(mapper.writeValueAsString(Map.of("answers",answers)),"STOP"),MediaType.APPLICATION_JSON));
+        var composed=selector.compose("How to sign in and borrow?",List.of(borrow,login),"en");
+        assertThat(composed.failure()).isNull();
+        assertThat(composed.drafts()).extracting(FaqIntentSelector.Draft::faqId).containsExactly("borrow","login");
+        assertThat(composed.drafts()).allMatch(d->d.content()!=null);
+        server.verify();
+    }
+    @Test void expiredRequestBudgetStopsBeforeCallingProvider() {
+        selector.startBudget(Duration.ofSeconds(1));
+        assertThat(selector.plan("Hello",com.library.recommendation.application.chatbot.ChatbotTool.available(false),"en",List.of(),"").failure()).isEqualTo("REQUEST_TIMEOUT");
+        selector.endBudget(); server.verify();
+    }
+
     String composition(String summary, List<String> evidence) throws Exception {
         return mapper.writeValueAsString(Map.of("faqId", "borrow", "summary", summary,
             "steps", List.of("Đăng nhập vào Library74."), "bullets", List.of(), "note", "", "evidence", evidence));

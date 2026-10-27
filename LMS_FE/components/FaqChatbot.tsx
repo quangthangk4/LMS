@@ -7,7 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { ChatbotAnswerBody, ChatbotCards, safeChatPath } from './ChatbotAnswerBody';
 import { chatbotService, FaqAnswer, FaqContent, FaqSuggestion, FaqCard, FaqSource } from '../api/chatbotService';
 
-type Message = { role: 'user' | 'assistant'; text: string; content?: FaqContent | null; sourceTitle?: string; sourcePath?: string; cards?: FaqCard[]; sources?: FaqSource[]; total?: number | null; page?: number | null; retrievedAt?: string | null };
+type Message = { role: 'user' | 'assistant'; text: string; content?: FaqContent | null; sourceTitle?: string; sourcePath?: string; cards?: FaqCard[]; sources?: FaqSource[]; total?: number | null; page?: number | null; retrievedAt?: string | null; sections?: FaqAnswer[] };
 const focusClass = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900';
 
 /** Only current questions are uploaded; private tool results stay server-rendered data. */
@@ -25,8 +25,13 @@ function FaqChatbotPanel({ language, personal }: { language: 'vi' | 'en'; person
   const input = useRef<HTMLTextAreaElement>(null);
   const transcript = useRef<HTMLDivElement>(null);
   const current = useRef<AbortController | null>(null);
+  const conversationId = useRef<string | undefined>(undefined);
+  const [contextNotice, setContextNotice] = useState(false);
 
-  useEffect(() => () => current.current?.abort(), []);
+  useEffect(() => () => {
+    current.current?.abort();
+    if (conversationId.current) void chatbotService.clear(conversationId.current, personal).catch(() => {});
+  }, [personal]);
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
@@ -49,6 +54,9 @@ function FaqChatbotPanel({ language, personal }: { language: 'vi' | 'en'; person
     cancelRequest(); setOpen(false); launcher.current?.focus({ preventScroll: true });
   };
   const clear = () => {
+    if (conversationId.current) void chatbotService.clear(conversationId.current, personal).catch(() => {});
+    conversationId.current = undefined;
+    setContextNotice(false);
     cancelRequest(); setMessages([]); setDraft(''); setError(''); input.current?.focus({ preventScroll: true });
   };
   const send = async (text: string) => {
@@ -58,14 +66,15 @@ function FaqChatbotPanel({ language, personal }: { language: 'vi' | 'en'; person
     setBusy(true); setError(''); setDraft('');
     setMessages(previous => [...previous, { role: 'user' as const, text: question }].slice(-39));
     try {
-      const response = await (personal
-        ? chatbotService.ask(question, language, controller.signal, true)
-        : chatbotService.ask(question, language, controller.signal));
+      if (!conversationId.current) conversationId.current = crypto.randomUUID();
+      const response = await chatbotService.ask(question, language, controller.signal, personal, conversationId.current);
       if (controller.signal.aborted || current.current !== controller) return;
       const answer: FaqAnswer = response.data;
+      if (answer.conversationId) conversationId.current = answer.conversationId;
+      setContextNotice(!!answer.contextReset && messages.length > 0);
       setMessages(previous => [...previous, { role: 'assistant' as const, text: answer.answer,
         content: answer.content, sourceTitle: answer.sourceTitle, sourcePath: answer.sourcePath,
-        cards: answer.cards, sources: answer.sources, total: answer.total, page: answer.page, retrievedAt: answer.retrievedAt }].slice(-40));
+        cards: answer.cards, sources: answer.sources, total: answer.total, page: answer.page, retrievedAt: answer.retrievedAt, sections: answer.sections }].slice(-40));
     } catch (reason: unknown) {
       if (controller.signal.aborted || current.current !== controller) return;
       const failure = reason as { status?: number; response?: { status?: number } };
@@ -99,6 +108,14 @@ function FaqChatbotPanel({ language, personal }: { language: 'vi' | 'en'; person
         {messages.map((message, index) => <div key={index} className={`max-w-[95%] rounded-xl p-3 text-sm leading-relaxed ${message.role === 'user' ? 'ml-auto bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800'}`}>
           <span className="sr-only">{message.role === 'user' ? t('Bạn: ', 'You: ') : t('Trợ lý: ', 'Assistant: ')}</span>
           <ChatbotAnswerBody text={message.text} content={message.role === 'assistant' ? message.content : undefined} />
+          {message.sections?.map((section, part) => <div key={part} className="mt-3 space-y-2 border-t border-slate-300 pt-3 first:mt-0 first:border-0 first:pt-0 dark:border-slate-600">
+            {section.sourceTitle && <h3 className="font-semibold">{section.sourceTitle}</h3>}
+            <ChatbotAnswerBody text={section.answer} content={section.content} />
+            {section.cards && <ChatbotCards cards={section.cards} language={language} />}
+            {section.total != null && <p className="text-xs text-slate-500 dark:text-slate-400">{t('Tổng kết quả', 'Total results')}: {section.total} · {t('Trang', 'Page')} {(section.page ?? 0) + 1}</p>}
+            {section.retrievedAt && <p className="text-xs text-slate-500 dark:text-slate-400">{t('Tra cứu lúc', 'Retrieved at')}: {new Date(section.retrievedAt).toLocaleString(en ? 'en-GB' : 'vi-VN')}</p>}
+            {section.sources?.filter(source => safeChatPath(source.path)).map((source, sourceIndex) => <Link key={sourceIndex} to={source.path} onClick={close} className="block text-xs text-blue-700 underline dark:text-blue-300">{source.title}</Link>)}
+          </div>)}
           {message.cards && message.cards.length > 0 && <ChatbotCards cards={message.cards} language={language} />}
           {message.total != null && <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">
             {t('Tổng kết quả', 'Total results')}: {message.total} · {t('Trang', 'Page')} {(message.page ?? 0) + 1}
@@ -112,9 +129,10 @@ function FaqChatbotPanel({ language, personal }: { language: 'vi' | 'en'; person
             {t('Xem hướng dẫn: ', 'Read guide: ')}{message.sourceTitle}
           </Link>}
         </div>)}
-        {busy && <p role="status" className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><Loader2 aria-hidden="true" size={16} className="motion-safe:animate-spin" />{t('Đang soạn hướng dẫn…', 'Preparing your answer…')}</p>}
+        {busy && <p role="status" className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><Loader2 aria-hidden="true" size={16} className="motion-safe:animate-spin" />{t('Đang suy nghĩ…', 'Thinking…')}</p>}
       </div>
       <div className="shrink-0 space-y-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
+        {contextNotice && <p role="status" className="text-xs text-amber-800 dark:text-amber-300">{t('Ngữ cảnh trước đó đã hết hạn hoặc chưa lưu được. Bạn hãy nhắc lại tên sách nếu cần.', 'Previous context expired or could not be saved. Please repeat the book title if needed.')}</p>}
         {suggestionError && <p role="status" className="text-xs text-amber-800 dark:text-amber-300">{t('Chưa tải được câu hỏi gợi ý. Bạn có thể nhập câu hỏi hoặc mở hướng dẫn.', 'Suggested questions could not be loaded. Type a question or open the guide.')}</p>}
         {suggestions.length > 0 && <><label htmlFor="faq-chat-topics" className="sr-only">{t('Chọn câu hỏi gợi ý', 'Choose a suggested question')}</label>
           <select id="faq-chat-topics" value="" disabled={busy} onChange={event => { if (event.target.value) void send(event.target.value); }}

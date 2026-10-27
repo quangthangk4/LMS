@@ -10,6 +10,10 @@ import com.library.shared.util.SecurityEvaluator;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -17,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/recommendations")
 @RequiredArgsConstructor
+@Validated
 public class RecommendationController {
 
     private final GetRecommendationsUseCase getRecommendationsUseCase;
@@ -25,9 +30,16 @@ public class RecommendationController {
     @GetMapping
     @RequiresAuthentication
     public ApiResponseApp<List<RecommendationResponse>> getRecommendations(
-        @RequestParam(name = "limit", defaultValue = "10") int limit) {
+        @RequestParam(name = "limit", defaultValue = "10") @Min(1) @Max(20) int limit) {
         return ApiResponseApp.success(
             getRecommendationsUseCase.execute(security.getCurrentUserId(), limit));
+    }
+
+    @PostMapping("/refresh")
+    @RequiresAuthentication
+    public ApiResponseApp<List<RecommendationResponse>> refresh(
+        @RequestParam(name = "limit", defaultValue = "10") @Min(1) @Max(20) int limit) {
+        return ApiResponseApp.success(getRecommendationsUseCase.refresh(security.getCurrentUserId(), limit));
     }
 
     @GetMapping("/librarian-reader")
@@ -35,7 +47,7 @@ public class RecommendationController {
     public ApiResponseApp<List<RecommendationResponse>> getReaderRecommendationsForLibrarian(
         @RequestParam(name = "userId") Long userId,
         @RequestParam(name = "faculty", required = false) String faculty,
-        @RequestParam(name = "limit", defaultValue = "3") int limit) {
+        @RequestParam(name = "limit", defaultValue = "3") @Min(1) @Max(20) int limit) {
         return ApiResponseApp.success(getRecommendationsUseCase.execute(userId, faculty, limit));
     }
 }

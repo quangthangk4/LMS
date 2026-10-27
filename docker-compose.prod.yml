@@ -1,6 +1,20 @@
 name: library74
 
 services:
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDISCLI_AUTH: ${REDIS_PASSWORD:-}
+    command: ["sh", "-c", "if [ -n \"$$REDIS_PASSWORD\" ]; then set -- --requirepass \"$$REDIS_PASSWORD\"; else set --; fi; exec redis-server --save '' --appendonly no --maxmemory 128mb --maxmemory-policy allkeys-lru \"$$@\""]
+    healthcheck:
+      test: ["CMD-SHELL", "if [ -z \"$$REDISCLI_AUTH\" ]; then unset REDISCLI_AUTH; fi; redis-cli ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
   postgres:
     image: pgvector/pgvector:pg15
     restart: unless-stopped
@@ -63,7 +77,10 @@ services:
       AI_CALLBACK_SECRET: ${SERVICE_CALLBACK_SECRET}
       AI_PROCESSING_CORE_POOL_SIZE: ${AI_PROCESSING_CORE_POOL_SIZE:-2}
       AI_PROCESSING_MAX_POOL_SIZE: ${AI_PROCESSING_MAX_POOL_SIZE:-4}
+      REDIS_HOST: redis
     depends_on:
+      redis:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       kafka:

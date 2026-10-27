@@ -67,7 +67,9 @@ def test_failed_encoding_keeps_active_generation_and_stale_versions_are_not_sear
     store.model.encode = original
     assert store.status()["version"] == "a" * 64
     assert store.search(SearchRequest(query="Borrow", language="en", version="a" * 64))["hits"]
-    assert store.search(SearchRequest(query="Borrow", language="en", version="b" * 64))["hits"] == []
+    with pytest.raises(HTTPException) as error:
+        store.search(SearchRequest(query="Borrow", language="en", version="b" * 64))
+    assert error.value.status_code == 409
     assert store.search(SearchRequest(query="Borrow", language="vi", version="a" * 64))["hits"] == []
 
 

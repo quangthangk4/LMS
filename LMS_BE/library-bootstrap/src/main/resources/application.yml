@@ -1,4 +1,13 @@
 spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      connect-timeout: 500ms
+      timeout: 700ms
+      repositories:
+        enabled: false
   jackson:
     serialization:
       write-dates-as-timestamps: false
@@ -104,6 +113,9 @@ server:
   port: 8080
 
 management:
+  health:
+    redis:
+      enabled: false # Optional cache outage must not mark core application unhealthy.
   endpoints:
     web:
       exposure:

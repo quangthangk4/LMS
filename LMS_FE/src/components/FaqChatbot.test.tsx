@@ -11,9 +11,42 @@ let mockSessionVersion = 0;
 jest.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ userType: mockUserType, sessionVersion: mockSessionVersion }) }));
 jest.mock('../../contexts/LanguageContext', () => ({ useLanguage: () => ({ language: mockLanguage }) }));
 jest.mock('../../contexts/UploadContext', () => ({ useUpload: () => ({ uploads: mockUploads }) }));
-jest.mock('../../api/chatbotService', () => ({ chatbotService: { suggestions: jest.fn(), ask: jest.fn() } }));
+jest.mock('../../api/chatbotService', () => ({ chatbotService: { suggestions: jest.fn(), ask: jest.fn(), clear: jest.fn().mockResolvedValue(undefined) } }));
 const suggestions = chatbotService.suggestions as jest.Mock;
 const ask = chatbotService.ask as jest.Mock;
+
+test('follow-up reuses conversation context; clear starts a new context and invalidates the old one', async () => {
+  view(); await open();
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Clean Code ở CS2 còn không?' } });
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+  await screen.findByText('Hướng dẫn đã duyệt.');
+  const oldId = ask.mock.calls[0][4];
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Còn CS1?' } });
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+  await waitFor(() => expect(ask).toHaveBeenCalledTimes(2));
+  expect(ask.mock.calls[1][4]).toBe(oldId);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Gửi câu hỏi' })).toBeDisabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Xóa hội thoại' }));
+  expect(chatbotService.clear).toHaveBeenCalledWith(oldId, false);
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Xin chào' } });
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+  await waitFor(() => expect(ask).toHaveBeenCalledTimes(3));
+  expect(ask.mock.calls[2][4]).not.toBe(oldId);
+});
+
+test('multiple tool sections retain separate prose, cards and reference links', async () => {
+  ask.mockResolvedValue({ data: { status: 'ANSWERED', answer: '', sections: [
+    { status: 'ANSWERED', answer: 'Hướng dẫn lấy lại mật khẩu', content: { summary: 'Khôi phục mật khẩu', steps: ['Chọn Quên mật khẩu'], bullets: [], note: '' }, sources: [{ title: 'Hướng dẫn', path: '/publicpage/faq' }] },
+    { status: 'ANSWERED', answer: 'Có. Clean Code còn 2 bản ở CS2.', cards: [{ id: '1', title: 'Clean Code', path: '/publicpage/book/1', facts: [{ label: 'Kệ', value: 'A1' }] }] },
+  ] } });
+  view(); await open();
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Tôi quên mật khẩu, tìm sách Clean Code ở CS2' } });
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+  expect(await screen.findByText('Khôi phục mật khẩu')).toBeInTheDocument();
+  expect(screen.getByText('Có. Clean Code còn 2 bản ở CS2.')).toBeInTheDocument();
+  expect(screen.getByText('A1')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Hướng dẫn' })).toHaveAttribute('href', '/publicpage/faq');
+});
 
 function view() { return render(<MemoryRouter><FaqChatbot /></MemoryRouter>); }
 async function open() {
@@ -79,7 +112,7 @@ test('typing does not send, Enter sends only current message/language and displa
   await user.keyboard('{Enter}');
   expect(await screen.findByText('Hướng dẫn đã duyệt.')).toBeInTheDocument();
   expect(ask).toHaveBeenCalledTimes(1);
-  expect(ask).toHaveBeenCalledWith('Cách mượn sách?', 'vi', expect.any(AbortSignal));
+  expect(ask).toHaveBeenCalledWith('Cách mượn sách?', 'vi', expect.any(AbortSignal), false, expect.any(String));
   expect(screen.getByRole('link', { name: /Xem hướng dẫn/ })).toHaveAttribute('href', '/publicpage/guide');
 });
 
@@ -182,7 +215,7 @@ test('reader chat uses the authenticated path and clears private cards on sessio
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Sách tôi đang mượn' } });
   fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
   expect(await screen.findByText('Private book')).toBeInTheDocument();
-  expect(ask).toHaveBeenCalledWith('Sách tôi đang mượn', 'vi', expect.any(AbortSignal), true);
+  expect(ask).toHaveBeenCalledWith('Sách tôi đang mượn', 'vi', expect.any(AbortSignal), true, expect.any(String));
   const link = screen.getByRole('link', { name: 'Mở chi tiết ở tab mới' });
   expect(link).toHaveAttribute('href', '/userpage/my-books');
   expect(link).toHaveAttribute('target', '_blank');

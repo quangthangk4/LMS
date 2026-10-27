@@ -15,6 +15,17 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.GenericContainer;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import com.library.recommendation.infrastructure.cache.RedisStateStore;
+import com.library.recommendation.application.chatbot.ChatConversationStore;
+import com.library.recommendation.application.chatbot.ChatbotReply;
+import com.library.recommendation.application.impl.GetRecommendationsUseCaseImpl;
+import com.library.recommendation.infrastructure.ai.AiGatewayService;
+import java.time.Duration;
+import java.util.UUID;
+import static org.mockito.Mockito.*;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
@@ -24,6 +35,10 @@ import org.testcontainers.utility.DockerImageName;
 class ChatbotReadOnlyIntegrationTest {
     @Container static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
         DockerImageName.parse("pgvector/pgvector:pg15").asCompatibleSubstituteFor("postgres"));
+    @Container static GenericContainer<?> redisContainer = new GenericContainer<>("redis:7.4-alpine").withExposedPorts(6379);
+    static LettuceConnectionFactory redisConnection;
+    static StringRedisTemplate redis;
+    static RedisStateStore state;
     static JdbcTemplate jdbc;
     static ChatbotReadQueries queries;
     static TransactionTemplate transaction;
@@ -37,6 +52,94 @@ class ChatbotReadOnlyIntegrationTest {
         queries = new ChatbotReadQueries(new NamedParameterJdbcTemplate(source));
         transaction = new TransactionTemplate(new DataSourceTransactionManager(source));
         transaction.setReadOnly(true);
+        redisConnection=new LettuceConnectionFactory(redisContainer.getHost(),redisContainer.getMappedPort(6379));
+        redisConnection.afterPropertiesSet(); redisConnection.start();
+        redis=new StringRedisTemplate(redisConnection); state=new RedisStateStore(redis,true);
+    }
+    @org.junit.jupiter.api.AfterAll static void closeRedis() { if(redisConnection!=null) redisConnection.destroy(); }
+
+    @Test void redisLeaseAndCompareAndSetCannotOverwriteNewerValues() {
+        String key="test:"+UUID.randomUUID();
+        assertThat(state.create(key,"one",Duration.ofSeconds(60))).isTrue();
+        assertThat(state.replace(key,"wrong","two",Duration.ofSeconds(60))).isFalse();
+        assertThat(state.replace(key,"one","two",Duration.ofSeconds(60))).isTrue();
+        assertThat(state.deleteIfValue(key,"one")).isFalse();
+        var first=state.acquire(key+":lock",Duration.ofSeconds(30));
+        var second=state.acquire(key+":lock",Duration.ofSeconds(30));
+        assertThat(first.acquired()).isTrue(); assertThat(second.acquired()).isFalse();
+        state.release(second); assertThat(state.read(key+":lock").value()).isEqualTo(first.token());
+        state.release(first); assertThat(state.read(key+":lock").value()).isNull();
+    }
+
+    @Test void conversationIsBoundedScopedExpiresAndCannotBeResurrectedAfterClearOrLogout() {
+        var conversations=new ChatConversationStore(state,mapper);
+        UUID id=UUID.randomUUID();
+        for(int n=0;n<8;n++) {
+            var session=conversations.begin(id,7L,"vi");
+            conversations.finish(session,"Question "+n,ChatbotReply.message("ANSWERED","Public guidance"),"book=42 campus=CAMPUS_2");
+        }
+        var session=conversations.begin(id,7L,"vi");
+        assertThat(session.context().turns()).hasSize(6);
+        assertThat(session.context().turns().getFirst().question()).isEqualTo("Question 2");
+        assertThat(redis.getExpire(session.key())).isBetween(1790L,1800L);
+        var stranger=conversations.begin(id,8L,"vi");
+        assertThat(stranger.context().turns()).isEmpty();
+        conversations.finish(stranger,"Hello",ChatbotReply.message("ANSWERED","Hi"),null);
+        conversations.clear(id,7L);
+        conversations.finish(session,"Late request",ChatbotReply.message("ANSWERED","Must not persist"),null);
+        assertThat(state.read(session.key()).value()).isEqualTo("CLEARED");
+        var old=conversations.begin(UUID.randomUUID(),7L,"vi");
+        conversations.finish(old,"Old question",ChatbotReply.message("ANSWERED","Old context"),null);
+        conversations.revoke(7L);
+        var afterLogout=conversations.begin(UUID.fromString(old.id()),7L,"vi");
+        assertThat(afterLogout.key()).isNotEqualTo(old.key());
+        assertThat(afterLogout.context().turns()).isEmpty();
+        conversations.finish(afterLogout,"New session",ChatbotReply.message("ANSWERED","Hi"),null);
+        UUID expiring=UUID.randomUUID();
+        var prior=conversations.begin(expiring,null,"en");
+        conversations.finish(prior,"Hello",ChatbotReply.message("ANSWERED","Hi"),null);
+        redis.expire(prior.key(),Duration.ZERO);
+        var expired=conversations.begin(expiring,null,"en");
+        assertThat(expired.context().turns()).isEmpty();
+        assertThat(expired.reset()).isTrue();
+        conversations.finish(expired,"New question",ChatbotReply.message("ANSWERED","Hi"),null);
+    }
+
+    @Test void recommendationsUseEightHourRedisCacheButHydrateFreshSqlAndRefreshExplicitly() {
+        var ai=mock(AiGatewayService.class);
+        Long user=jdbc.queryForObject("SELECT MIN(id) FROM users",Long.class);
+        var ids=jdbc.queryForList("SELECT DISTINCT i.publication_id FROM items i WHERE i.status='AVAILABLE' AND NOT EXISTS (SELECT 1 FROM reshelving_tasks q WHERE q.item_id=i.id AND q.status='WAITING') ORDER BY i.publication_id LIMIT 2",Long.class);
+        jdbc.update("DELETE FROM ai_recommendations WHERE user_id=?",user);
+        when(ai.getRecommendations(eq(user),any(),eq(20))).thenReturn(new AiGatewayService.AiRecommendationResult(ids,"TEST"));
+        var recommendations=new GetRecommendationsUseCaseImpl(new NamedParameterJdbcTemplate(jdbc),mapper,ai,state);
+        var first=recommendations.execute(user,2);
+        assertThat(first).isNotEmpty();
+        var keys=redis.keys("lms:reco:v1:"+user+":*");
+        assertThat(keys).hasSize(1);
+        assertThat(redis.getExpire(keys.iterator().next())).isBetween(28790L,28800L);
+        assertThat(recommendations.execute(user,2)).extracting("publicationId").containsExactlyElementsOf(first.stream().map(r->r.getPublicationId()).toList());
+        verify(ai,times(1)).getRecommendations(eq(user),any(),eq(20));
+        Long book=first.getFirst().getPublicationId();
+        Long available=jdbc.queryForObject("SELECT COUNT(*) FROM items i WHERE i.publication_id=? AND i.status='AVAILABLE' AND NOT EXISTS (SELECT 1 FROM reshelving_tasks q WHERE q.item_id=i.id AND q.status='WAITING')",Long.class,book);
+        assertThat(recommendations.execute(user,2).getFirst().getAvailableItems()).isEqualTo(available.intValue());
+        recommendations.refresh(user,2);
+        verify(ai,times(2)).getRecommendations(eq(user),any(),eq(20));
+    }
+
+    @Test void availabilityDistinguishesExistingBookWithoutCampusCopiesFromMissingPublication() {
+        Long book=jdbc.queryForObject("SELECT MIN(id) FROM publications",Long.class);
+        var write=new TransactionTemplate(new DataSourceTransactionManager(jdbc.getDataSource()));
+        var answer=write.execute(status->{
+            status.setRollbackOnly();
+            jdbc.update("UPDATE items SET branch='Cơ sở 1 - Lý Thường Kiệt' WHERE publication_id=?",book);
+            return queries.execute(ChatbotTool.get_publication_availability,
+                mapper.createObjectNode().put("publicationId",book.toString()).put("branch","CAMPUS_2"),null,"vi");
+        });
+        assertThat(answer.answer()).startsWith("Không.").contains("có trong thư viện","Cơ sở 2");
+        assertThat(answer.total()).isZero();
+        var missing=queries.execute(ChatbotTool.get_publication_availability,
+            mapper.createObjectNode().put("publicationId",Long.toString(Long.MAX_VALUE)).put("branch","CAMPUS_2"),null,"vi");
+        assertThat(missing.answer()).contains("Chưa tìm thấy sách");
     }
 
     @Test void catalogPolicyAndPersonalToolsUseRealSqlWithoutChangingBusinessTables() throws Exception {

@@ -18,6 +18,7 @@ public class LogoutUseCaseImpl implements LogoutUseCase {
     private final IntrospectToken introspectToken;
     private final RSAKeyRecord rSAKeyRecord;
     private final RefreshTokensService refreshTokensService;
+    private final org.springframework.beans.factory.ObjectProvider<com.library.shared.port.ChatConversationRevocationPort> conversations;
 
     @Override
     public void execute(String refreshToken) {
@@ -26,5 +27,11 @@ public class LogoutUseCaseImpl implements LogoutUseCase {
             throw new AppException(ErrorCode.TOKEN_INVALID);
         }
         refreshTokensService.revokeToken(claimsSet.getJWTID());
+        if(conversations!=null) {
+            try {
+                Long owner=Long.valueOf(claimsSet.getSubject());
+                conversations.ifAvailable(store->store.revoke(owner));
+            } catch(RuntimeException ignored) { /* Cache must not prevent logout. */ }
+        }
     }
 }

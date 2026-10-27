@@ -99,6 +99,7 @@ public class SecurityConfig {
         .requestMatchers(AUTH_ENDPOINTS).permitAll()
         .requestMatchers(WEBSOCKET_ENDPOINTS).permitAll()
         .requestMatchers(HttpMethod.POST, AI_PUBLIC_ENDPOINTS).permitAll()
+        .requestMatchers(HttpMethod.DELETE, "/api/v1/chatbot/conversations/*").permitAll()
         .requestMatchers(HttpMethod.GET, AUTHENTICATED_CATALOG_GET_ENDPOINTS).authenticated()
         .requestMatchers(HttpMethod.GET, PUBLIC_ENDPOINTS).permitAll()
         .anyRequest().authenticated()

@@ -68,13 +68,15 @@ public class ChatbotKnowledgeClient {
         } finally { syncing.set(false); }
     }
 
-    public List<FaqCatalog.Entry> retrieve(String question, String language) {
-        if (!enabled || key.isBlank()) return List.of();
+    public record Retrieval(List<FaqCatalog.Entry> entries,String failure) {}
+    public List<FaqCatalog.Entry> retrieve(String question, String language) { return retrieveResult(question,language).entries(); }
+    public Retrieval retrieveResult(String question, String language) {
+        if (!enabled || key.isBlank()) return new Retrieval(List.of(),"KNOWLEDGE_NOT_CONFIGURED");
         try {
             JsonNode result = client.post().uri("/internal/chatbot/knowledge/search").header("X-Chatbot-Service-Key", key)
                 .body(Map.of("query", question, "language", language, "version", catalog.version()))
                 .retrieve().body(JsonNode.class);
-            if (result == null || !catalog.version().equals(result.path("version").asText())) return List.of();
+            if (result == null || !catalog.version().equals(result.path("version").asText())) return new Retrieval(List.of(),"KNOWLEDGE_NOT_READY");
             var textByTopic = new LinkedHashMap<String, StringBuilder>();
             for (JsonNode hit : result.path("hits")) {
                 String id = hit.path("topic_id").asText();
@@ -98,7 +100,11 @@ public class ChatbotKnowledgeClient {
                 var copy = new FaqCatalog.Copy(original.copy(language).question(), text.toString().trim(), List.of());
                 entries.add(new FaqCatalog.Entry(id, original.sourcePath(), copy, copy));
             });
-            return entries;
-        } catch (Exception ignored) { return List.of(); }
+            return new Retrieval(List.copyOf(entries),null);
+        } catch (org.springframework.web.client.HttpClientErrorException.Conflict notReady) {
+            return new Retrieval(List.of(),"KNOWLEDGE_NOT_READY");
+        } catch (org.springframework.web.client.ResourceAccessException timeout) {
+            return new Retrieval(List.of(),"KNOWLEDGE_TIMEOUT");
+        } catch (Exception ignored) { return new Retrieval(List.of(),"KNOWLEDGE_UNAVAILABLE"); }
     }
 }

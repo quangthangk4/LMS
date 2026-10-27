@@ -44,6 +44,8 @@ public class SystemAuditFilter extends OncePerRequestFilter {
         // Chat uses POST for a query body; it performs no business mutation.
         || path.equals("/api/v1/chatbot/messages")
         || path.equals("/api/v1/chatbot/my/messages")
+        || path.startsWith("/api/v1/chatbot/conversations/")
+        || path.startsWith("/api/v1/chatbot/my/conversations/")
         || path.equals("/api/v1/fines/payments/payos/webhook");
   }
 

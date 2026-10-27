@@ -108,17 +108,15 @@ public class ChatbotReadQueries {
     private ChatbotReply catalog(ChatbotTool tool, Map<String, Object> p, Map<String, String> args, int page, boolean en) {
         if (tool != ChatbotTool.list_publications && ((String)p.get("query")).isBlank() && p.get("publicationId") == null)
             return ChatbotReply.message("CLARIFY", en ? "Please provide a book title, author, ISBN or publication ID." : "Bạn hãy nhập tên sách, tác giả, ISBN hoặc mã ấn phẩm.");
+        boolean oneBook = tool == ChatbotTool.get_publication_details || tool == ChatbotTool.get_publication_availability || tool == ChatbotTool.get_publication_rating_summary;
         String from = """
             FROM publications p WHERE
             (CAST(:publicationId AS BIGINT) IS NULL OR p.id=:publicationId)
             AND (:query='' OR unaccent(LOWER(p.title)) LIKE unaccent(:pattern) OR LOWER(COALESCE(p.isbn,'')) LIKE :pattern
                 OR EXISTS (SELECT 1 FROM publication_authors pa JOIN authors a ON a.id=pa.author_id
                            WHERE pa.publication_id=p.id AND unaccent(LOWER(a.name)) LIKE unaccent(:pattern)))
-            AND (CAST(:branch AS VARCHAR) IS NULL OR EXISTS
-                (SELECT 1 FROM items bi WHERE bi.publication_id=p.id AND bi.branch=:branch))
-            """;
+            """ + (oneBook ? "" : " AND (CAST(:branch AS VARCHAR) IS NULL OR EXISTS (SELECT 1 FROM items bi WHERE bi.publication_id=p.id AND bi.branch=:branch)) ");
         Long count = jdbc.queryForObject("SELECT COUNT(*) " + from, p, Long.class);
-        boolean oneBook = tool == ChatbotTool.get_publication_details || tool == ChatbotTool.get_publication_availability || tool == ChatbotTool.get_publication_rating_summary;
         var bookParams = new HashMap<>(p);
         if (oneBook) { bookParams.put("offset", 0); bookParams.put("limit", 5); }
         String order = "most_borrowed".equals(args.get("sort"))
@@ -137,7 +135,11 @@ public class ChatbotReadQueries {
                 String copies = "FROM items i WHERE i.publication_id=:publicationId AND " + READY + " AND (CAST(:branch AS VARCHAR) IS NULL OR i.branch=:branch)";
                 var total = jdbc.queryForObject("SELECT COUNT(*) " + copies, p, Long.class);
                 var items = jdbc.queryForList("SELECT i.id,i.barcode,i.branch,i.location " + copies + " ORDER BY i.branch,i.location,i.id LIMIT :limit OFFSET :offset", p);
-                return reply(en ? "Available copies now; no copy has been held." : "Bản sao khả dụng tại thời điểm tra cứu; chưa có bản nào được giữ chỗ.",
+                String campus = p.get("branch") == null ? (en ? "across both campuses" : "tại cả hai cơ sở") : (en ? "at " : "tại ") + p.get("branch");
+                String availability = total != null && total > 0
+                    ? (en ? "Yes. " : "Có. ") + book.get("title") + (en ? " has " : " còn ") + total + (en ? " available copies " : " bản sao có sẵn ") + campus + "."
+                    : (en ? "No. " : "Không. ") + book.get("title") + (en ? " is in the catalog, but has no available copies " : " có trong thư viện, nhưng chưa có bản sao sẵn sàng cho mượn ") + campus + ".";
+                return reply(availability,
                     items.stream().map(item -> new Card(id(item), text(book.get("title")), null, image(book.get("cover_image_url")), path,
                         List.of(fact("Barcode", item.get("barcode")), fact(en ? "Campus" : "Cơ sở", item.get("branch")), fact(en ? "Shelf" : "Vị trí kệ", item.get("location"))))).toList(), total, page, path);
             }
