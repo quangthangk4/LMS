@@ -58,7 +58,7 @@ class FaqChatbotServiceTest {
         var answer = service.answer("Please explain the borrowing process", "en");
         assertThat(answer.content()).isEqualTo(content);
         assertThat(answer.answer()).contains("1. Sign in.", "2. Find a book.");
-        assertThat(answer.sourcePath()).isEqualTo("/publicpage/guide");
+        assertThat(answer.sourcePath()).isEqualTo("/publicpage/guide#borrow");
     }
 
     @Test void sourceFallbackSeparatesNumberedStepsAndKeepsOriginalFacts() {
@@ -77,7 +77,7 @@ class FaqChatbotServiceTest {
         when(selector.generate(anyString(), anyList(), anyString())).thenReturn(new FaqIntentSelector.Draft("borrow", null));
         var answer = service.answer("Could you explain the steps for taking a book home?", "en");
         assertThat(answer.answer()).isEqualTo(catalog.find("borrow").orElseThrow().en().answer());
-        assertThat(answer.sourcePath()).isEqualTo("/publicpage/guide");
+        assertThat(answer.sourcePath()).isEqualTo("/publicpage/guide#borrow");
     }
 
     @ParameterizedTest

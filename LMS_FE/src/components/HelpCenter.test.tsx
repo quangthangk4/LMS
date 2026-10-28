@@ -53,3 +53,13 @@ test('language changes abort old content and load the selected language', async 
   expect(await screen.findByText('How do I borrow?')).toBeInTheDocument();
   await waitFor(() => expect(load).toHaveBeenLastCalledWith('en', expect.any(AbortSignal)));
 });
+
+test('a direct FAQ anchor opens and focuses the exact topic after content finishes loading', async () => {
+  load.mockResolvedValue({ data: { topics: [topic, { ...topic, id: 'password', question: 'Tôi quên mật khẩu thì làm gì?' }] } });
+  render(<MemoryRouter initialEntries={['/publicpage/faq#password']}><HelpCenter kind="faq" /></MemoryRouter>);
+  await screen.findByText('Tôi quên mật khẩu thì làm gì?');
+  const target = document.getElementById('password');
+  expect(target).toHaveAttribute('open');
+  expect(target).toHaveFocus();
+  expect(document.getElementById('borrow')).not.toHaveAttribute('open');
+});

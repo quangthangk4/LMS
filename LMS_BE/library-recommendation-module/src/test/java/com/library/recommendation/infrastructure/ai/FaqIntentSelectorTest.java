@@ -83,6 +83,29 @@ class FaqIntentSelectorTest {
         assertThat(selector.plan("Hello",com.library.recommendation.application.chatbot.ChatbotTool.available(false),"en",List.of(),"").failure()).isEqualTo("REQUEST_TIMEOUT");
         selector.endBudget(); server.verify();
     }
+    @Test void publicNarrationUsesOnlyProvidedFactsAndSelectsExistingRelevantCards() throws Exception {
+        var java=new com.library.recommendation.application.chatbot.ChatbotReply.Card("1","Java Fundamentals",null,null,"/publicpage/book/1",List.of());
+        var javascript=new com.library.recommendation.application.chatbot.ChatbotReply.Card("2","JavaScript Guide",null,null,"/publicpage/book/2",List.of());
+        var reference=new com.library.recommendation.application.chatbot.ChatbotReply("ANSWERED",null,"Found 2 books","Catalog","/publicpage/search",null,List.of(),List.of(java,javascript),2L,0,null);
+        var answer=Map.of("faqId","lookup","summary","Yes, I found Java Fundamentals in the library.","steps",List.of(),"bullets",List.of(),"note","","evidence",List.of("Java Fundamentals"));
+        server.expect(anything()).andExpect(jsonPath("$.systemInstruction.parts[0].text",org.hamcrest.Matchers.containsString("Java and JavaScript are different")))
+            .andRespond(withSuccess(envelope(mapper.writeValueAsString(Map.of("answers",List.of(answer),"selectedPaths",List.of("/publicpage/book/1"))),"STOP"),MediaType.APPLICATION_JSON));
+        var narration=selector.narrate("Are there Java books?",List.of(reference),"en");
+        assertThat(narration.failure()).isNull();
+        assertThat(narration.drafts().getFirst().content().summary()).startsWith("Yes,");
+        assertThat(narration.selectedPaths()).containsExactly("/publicpage/book/1");
+        server.verify();
+    }
+    @Test void publicNarrationRejectsFabricatedCardLinksAndNeverReceivesPrivateRecords() throws Exception {
+        var card=new com.library.recommendation.application.chatbot.ChatbotReply.Card("1","Java",null,null,"/publicpage/book/1",List.of());
+        var reference=new com.library.recommendation.application.chatbot.ChatbotReply("ANSWERED",null,"Found Java","Catalog","/publicpage/search",null,List.of(),List.of(card),1L,0,null);
+        var answer=Map.of("faqId","lookup","summary","Found Java.","steps",List.of(),"bullets",List.of(),"note","","evidence",List.of("Java"));
+        server.expect(anything()).andRespond(withSuccess(envelope(mapper.writeValueAsString(Map.of("answers",List.of(answer),"selectedPaths",List.of("/publicpage/book/999"))),"STOP"),MediaType.APPLICATION_JSON));
+        assertThat(selector.narrate("Find Java",List.of(reference),"en").failure()).isEqualTo("AI_INVALID_RESPONSE");
+        var personal=new com.library.recommendation.application.chatbot.ChatbotReply("ANSWERED",null,"PRIVATE_FINE","My fines","/userpage/fines",null,List.of(),List.of(),1L,0,null);
+        assertThat(selector.narrate("My fines",List.of(personal),"en").failure()).isEqualTo("AI_INVALID_RESPONSE");
+        server.verify();
+    }
 
     String composition(String summary, List<String> evidence) throws Exception {
         return mapper.writeValueAsString(Map.of("faqId", "borrow", "summary", summary,

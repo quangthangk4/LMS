@@ -170,4 +170,36 @@ class ChatbotReadOnlyIntegrationTest {
         assertThat(other.total()).isZero();
         assertThat(other.cards()).isEmpty();
     }
+    @Test void catalogSearchMatchesWholeTermsAndStoredDescriptionsRatherThanJavaScriptSubstrings() {
+        var books=jdbc.queryForList("SELECT id FROM publications ORDER BY id LIMIT 2",Long.class);
+        var write=new TransactionTemplate(new DataSourceTransactionManager(jdbc.getDataSource()));
+        write.executeWithoutResult(status->{
+            status.setRollbackOnly();
+            jdbc.update("UPDATE publications SET title='Java Subjectsentinel',description='Basics',ai_summary=NULL WHERE id=?",books.get(0));
+            jdbc.update("UPDATE publications SET title='JavaScript Subjectsentinel',description='Web scripting',ai_summary=NULL WHERE id=?",books.get(1));
+            var java=queries.execute(ChatbotTool.search_catalog,mapper.createObjectNode().put("query","Java Subjectsentinel"),null,"en");
+            assertThat(java.cards()).extracting(c->c.path()).containsExactly("/publicpage/book/"+books.get(0));
+            jdbc.update("UPDATE publications SET title='Nhập môn',description='Lập trình Subjectsentinel dành cho người mới bắt đầu' WHERE id=?",books.get(0));
+            var beginner=queries.execute(ChatbotTool.search_catalog,mapper.createObjectNode().put("query","lap trinh Subjectsentinel"),null,"vi");
+            assertThat(beginner.cards()).extracting(c->c.path()).containsExactly("/publicpage/book/"+books.get(0));
+            assertThat(beginner.cards().getFirst().facts()).anyMatch(f->f.value().contains("người mới bắt đầu"));
+        });
+    }
+    @Test void urgentLoansUseDueDatesEvenBeforeTheOverdueSchedulerUpdatesStatus() {
+        var active=jdbc.queryForMap("SELECT id,user_id FROM borrowing_transactions WHERE status IN ('BORROWING','OVERDUE') ORDER BY id LIMIT 1");
+        Long user=((Number)active.get("user_id")).longValue();
+        var write=new TransactionTemplate(new DataSourceTransactionManager(jdbc.getDataSource()));
+        write.executeWithoutResult(status->{
+            status.setRollbackOnly();
+            jdbc.update("UPDATE borrowing_transactions SET due_date=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Ho_Chi_Minh')::date+10 WHERE user_id=? AND status IN ('BORROWING','OVERDUE')",user);
+            jdbc.update("UPDATE borrowing_transactions SET due_date=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Ho_Chi_Minh')::date-1,status='BORROWING' WHERE id=?",active.get("id"));
+            var urgent=queries.execute(ChatbotTool.get_my_loans,mapper.createObjectNode().put("status","DUE_SOON"),user,"vi");
+            assertThat(urgent.total()).isEqualTo(1L);
+            assertThat(urgent.answer()).startsWith("Có, bạn có 1 cuốn");
+            assertThat(urgent.cards()).hasSize(1);
+            assertThat(urgent.cards().getFirst().facts()).anyMatch(f->"Trạng thái".equals(f.label()) && "Quá hạn".equals(f.value()));
+            var overdue=queries.execute(ChatbotTool.get_my_loans,mapper.createObjectNode().put("status","OVERDUE"),user,"vi");
+            assertThat(overdue.total()).isEqualTo(1L);
+        });
+    }
 }

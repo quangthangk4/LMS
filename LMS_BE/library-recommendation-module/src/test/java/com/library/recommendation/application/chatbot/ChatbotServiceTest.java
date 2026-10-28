@@ -76,13 +76,14 @@ class ChatbotServiceTest {
     @Test void noMatchIsDifferentFromIndexOrProviderFailure() throws Exception {
         plan(call("search_library_help","{}"));
         when(knowledge.retrieveResult(anyString(),anyString())).thenReturn(new ChatbotKnowledgeClient.Retrieval(List.of(),null));
+        when(model.compose(anyString(),anyList(),anyString())).thenReturn(new FaqIntentSelector.Grounded(List.of(),null));
         assertThat(service.answer("Unknown instruction","en",null).status()).isEqualTo("NO_MATCH");
         plan(call("search_library_help","{}"));
         when(knowledge.retrieveResult(anyString(),anyString())).thenReturn(new ChatbotKnowledgeClient.Retrieval(List.of(),"KNOWLEDGE_NOT_READY"));
         assertThat(service.answer("Unknown instruction","en",null).reasonCode()).isEqualTo("KNOWLEDGE_NOT_READY");
         when(model.plan(anyString(),anyList(),anyString(),anyList(),anyString())).thenReturn(new FaqIntentSelector.Plan(List.of(),null,"AI_QUOTA_EXCEEDED"));
         assertThat(service.answer("Unknown instruction","en",null).reasonCode()).isEqualTo("AI_QUOTA_EXCEEDED");
-        verify(model,never()).compose(anyString(),anyList(),anyString());
+        verify(model,times(2)).compose(anyString(),anyList(),anyString());
     }
     @Test void retrievedGuidanceRemainsUsableWhenWritingModelFails() throws Exception {
         plan(call("search_library_help","{}"));
@@ -105,7 +106,7 @@ class ChatbotServiceTest {
         service.answer("List all my loans","en",7L);
         verify(reads,times(4)).execute(any(),any(),eq(7L),eq("en"));
     }
-    @Test void aDependentAvailabilityLookupUsesThePublicResultFromThePreviousRound() throws Exception {
+    @Test void aSuccessfulDiscoveryStopsWithoutUnrequestedAvailabilityAndIsNarratedOnce() throws Exception {
         var content=mapper.readTree("{\"parts\":[]}");
         when(model.plan(anyString(),anyList(),anyString(),anyList(),anyString()))
             .thenReturn(new FaqIntentSelector.Plan(List.of(call("search_catalog","{\"query\":\"Clean Code\"}")),content,null))
@@ -113,9 +114,48 @@ class ChatbotServiceTest {
         when(reads.execute(eq(ChatbotTool.search_catalog),any(),isNull(),eq("en"))).thenReturn(new ChatbotReply(
             "ANSWERED",null,"Found a book",null,null,null,List.of(),List.of(new ChatbotReply.Card("42","Clean Code",null,null,"/publicpage/book/42",List.of())),1L,0,null));
         when(reads.execute(eq(ChatbotTool.get_publication_availability),any(),isNull(),eq("en"))).thenReturn(ChatbotReply.message("ANSWERED","Yes. Clean Code has 2 copies at campus 2."));
-        var reply=service.answer("Find Clean Code and check campus 2 availability","en",null);
-        assertThat(reply.sections()).hasSize(2);
-        assertThat(reply.sections().get(1).answer()).contains("2 copies");
-        verify(model,times(2)).plan(anyString(),anyList(),eq("en"),anyList(),anyString());
+        var contentReply=new FaqContent("Yes, I found Clean Code in the library.",List.of(),List.of(),"");
+        when(model.narrate(anyString(),anyList(),eq("en"))).thenReturn(new FaqIntentSelector.Grounded(List.of(new FaqIntentSelector.Draft("lookup",contentReply)),null));
+        var reply=service.answer("Find Clean Code please","en",null);
+        assertThat(reply.sections()).isEmpty();
+        assertThat(reply.answer()).isEqualTo(contentReply.text());
+        assertThat(reply.cards()).hasSize(1);
+        verify(model,times(1)).plan(anyString(),anyList(),eq("en"),anyList(),anyString());
+        verify(model,times(1)).narrate(anyString(),anyList(),eq("en"));
+        verify(reads,never()).execute(eq(ChatbotTool.get_publication_availability),any(),any(),anyString());
+    }
+    @Test void aCreatorParaphraseIsCheckedAgainstReviewedSourcesBeforeRefusal() throws Exception {
+        plan(call("respond_to_reader","{\"kind\":\"UNSUPPORTED\"}"));
+        when(model.compose(anyString(),anyList(),eq("vi"))).thenReturn(new FaqIntentSelector.Grounded(List.of(new FaqIntentSelector.Draft("creator",null)),null));
+        var answer=service.answer("ai làm ra cái trang web này vậy?","vi",null);
+        assertThat(answer.answer()).contains("Võ Quang Thắng");
+        assertThat(answer.sourcePath()).isEqualTo("/publicpage/about#creator");
+        verifyNoInteractions(reads);
+    }
+    @Test void intermediateEmptySearchesAreNotShownWhenABroaderSearchFindsBooks() throws Exception {
+        var content=mapper.readTree("{\"parts\":[]}");
+        when(model.plan(anyString(),anyList(),anyString(),anyList(),anyString()))
+            .thenReturn(new FaqIntentSelector.Plan(List.of(call("search_catalog","{\"query\":\"beginner programming books\"}")),content,null))
+            .thenReturn(new FaqIntentSelector.Plan(List.of(call("search_catalog","{\"query\":\"programming\"}")),content,null));
+        var empty=new ChatbotReply("ANSWERED",null,"No matching book", "Catalog","/publicpage/search",null,List.of(),List.of(),0L,0,null);
+        var found=new ChatbotReply("ANSWERED",null,"Found 1 book", "Catalog","/publicpage/search",null,List.of(),List.of(new ChatbotReply.Card("42","Programming",null,null,"/publicpage/book/42",List.of())),1L,0,null);
+        when(reads.execute(eq(ChatbotTool.search_catalog),any(),isNull(),eq("en"))).thenReturn(empty,found);
+        var answer=service.answer("I need books for beginner programmers","en",null);
+        assertThat(answer.answer()).contains("Found 1 book").doesNotContain("No matching");
+        assertThat(answer.cards()).hasSize(1);
+        verify(model).narrate(anyString(),eq(List.of(found)),eq("en"));
+    }
+    @Test void narrationOnlyReceivesPublicResultsAndCanSelectRelevantBooks() throws Exception {
+        plan(call("search_catalog","{\"query\":\"Java\"}"),call("get_my_fines","{}"));
+        var java=new ChatbotReply.Card("1","Java",null,null,"/publicpage/book/1",List.of());
+        var javascript=new ChatbotReply.Card("2","JavaScript",null,null,"/publicpage/book/2",List.of());
+        var publicResult=new ChatbotReply("ANSWERED",null,"Found 2 books","Catalog","/publicpage/search",null,List.of(),List.of(java,javascript),2L,0,null);
+        when(reads.execute(eq(ChatbotTool.search_catalog),any(),isNull(),eq("en"))).thenReturn(publicResult);
+        when(reads.execute(eq(ChatbotTool.get_my_fines),any(),eq(7L),eq("en"))).thenReturn(ChatbotReply.message("ANSWERED","PRIVATE_123456"));
+        when(model.narrate(anyString(),eq(List.of(publicResult)),eq("en"))).thenReturn(new FaqIntentSelector.Grounded(List.of(new FaqIntentSelector.Draft("lookup",new FaqContent("I found a Java book.",List.of(),List.of(),""))),null,List.of("/publicpage/book/1")));
+        var answer=service.answer("Find Java books and check my fines","en",7L);
+        assertThat(answer.sections()).hasSize(2);
+        assertThat(answer.sections().get(1).cards()).containsExactly(java);
+        verify(model,times(1)).narrate(anyString(),eq(List.of(publicResult)),eq("en"));
     }
 }

@@ -10,6 +10,7 @@ const RoutedContent = () => (
       <Link to="/publicpage/search">Search</Link>
       <Link to="/publicpage?transactionId=1">Open drawer</Link>
       <Link to="/publicpage">Close drawer</Link>
+      <Link to="/publicpage#password">Help topic</Link>
     </nav>
     <main data-route-scroll-container data-testid="scroll-container">
       <Routes>
@@ -30,6 +31,16 @@ describe('ScrollToTop', () => {
     jest.runOnlyPendingTimers();
     jest.useRealTimers();
     jest.restoreAllMocks();
+  });
+  it('does not let pending route timers override a newly selected anchor', () => {
+    render(<MemoryRouter initialEntries={['/publicpage']}><RoutedContent /></MemoryRouter>);
+    fireEvent.click(screen.getByText('Help topic'));
+    const container = screen.getByTestId('scroll-container');
+    container.scrollTop = 900;
+    window.scrollTo = jest.fn();
+    act(() => { jest.advanceTimersByTime(700); });
+    expect(container.scrollTop).toBe(900);
+    expect(window.scrollTo).not.toHaveBeenCalled();
   });
 
   it('resets the active app scroll container after a route change', () => {

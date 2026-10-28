@@ -17,6 +17,10 @@ public class FaqCatalog {
     public record Copy(String question, String answer, List<String> aliases) {}
     public record Entry(String id, String sourcePath, Copy vi, Copy en) {
         public Copy copy(String language) { return "en".equals(language) ? en : vi; }
+        public String referencePath() {
+            // These static pages do not render an individually addressable canonical topic.
+            return (java.util.Set.of("about","privacy").contains(id)?"/publicpage/faq":sourcePath) + "#" + id;
+        }
     }
 
     private final List<Entry> entries;

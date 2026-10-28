@@ -71,4 +71,17 @@ class ChatbotReadQueriesTest {
         assertThat(reply.cards().get(0).facts()).anySatisfy(fact -> assertThat(fact.value()).isEqualTo("50.000đ"));
         assertThat(mockingDetails(jdbc).getInvocations()).allSatisfy(call -> assertThat((String)call.getArgument(0)).doesNotContain("updated_by_admin"));
     }
+    @Test void urgentLoansAnswerYesFirstAndFilterDatesWithoutExposingOtherReaders() throws Exception {
+        when(jdbc.queryForObject(anyString(),anyMap(),eq(Long.class))).thenReturn(2L);
+        when(jdbc.queryForList(anyString(),anyMap())).thenReturn(List.of());
+        var reply=queries.execute(ChatbotTool.get_my_loans,mapper.readTree("{\"status\":\"DUE_SOON\"}"),7L,"vi");
+        assertThat(reply.answer()).startsWith("Có, bạn có 2 cuốn").contains("3 ngày tới");
+        assertThat(reply.sourceTitle()).isEqualTo("Sách của tôi").isNotEqualTo(reply.answer());
+        verify(jdbc).queryForObject(contains("t.due_date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Ho_Chi_Minh')::date + 3"),org.mockito.ArgumentMatchers.<Map<String,Object>>argThat(p->Long.valueOf(7).equals(p.get("userId"))),eq(Long.class));
+    }
+    @Test void emptyUrgentLoansAnswerNoWithoutInventingDueDates() throws Exception {
+        when(jdbc.queryForObject(anyString(),anyMap(),eq(Long.class))).thenReturn(0L);
+        when(jdbc.queryForList(anyString(),anyMap())).thenReturn(List.of());
+        assertThat(queries.execute(ChatbotTool.get_my_loans,mapper.readTree("{\"status\":\"DUE_SOON\"}"),7L,"vi").answer()).startsWith("Không,");
+    }
 }

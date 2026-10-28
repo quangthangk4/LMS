@@ -60,12 +60,17 @@ public class ChatbotService {
         var allowed=ChatbotTool.available(readerId!=null);
         var transcript=new ArrayList<Map<String,Object>>();
         var results=new ArrayList<ChatbotReply>();
+        var publicReads=new ArrayList<ChatbotReply>();
         var help=new LinkedHashMap<String,FaqCatalog.Entry>();
+        boolean broadHelp=false;
+        boolean refused=false;
+        String retrievalFailure=null;
         var seen=new HashSet<String>();
         int executions=0;
         boolean done=false;
         for(int round=0;round<3 && executions<4 && !done;round++) {
-            var plan=model.plan(question,allowed,lang,transcript,context);
+            String topics=catalog.entries().stream().map(e->e.id()+": "+e.copy(lang).question()).collect(java.util.stream.Collectors.joining("; "));
+            var plan=model.plan(question,allowed,lang,transcript,context+"\nReviewed Library74 help topics: "+topics);
             if(plan==null || plan.failure()!=null) {
                 results.add(failure(plan==null?"AI_INVALID_RESPONSE":plan.failure(),lang)); break;
             }
@@ -74,8 +79,11 @@ public class ChatbotService {
             for(var call:plan.calls()) {
                 if("respond_to_reader".equals(call.name())) {
                     String kind=call.arguments().path("kind").asText();
-                    if(!"DONE".equals(kind)) results.add(social(kind,call.arguments().path("message").asText(),lang));
-                    else if(results.isEmpty() && help.isEmpty()) results.add(failure("NO_MATCH",lang));
+                    if("UNSUPPORTED".equals(kind)) {
+                        // Verify against the small authoritative catalog before rejecting a paraphrase.
+                        catalog.entries().forEach(e->help.putIfAbsent(e.id(),e)); broadHelp=true; refused=true;
+                    } else if(!"DONE".equals(kind)) results.add(social(kind,call.arguments().path("message").asText(),lang));
+                    else if(results.isEmpty() && help.isEmpty() && publicReads.isEmpty()) results.add(failure("NO_MATCH",lang));
                     done=true;
                     responses.add(functionResponse(call,Map.of("delivered",true))); continue;
                 }
@@ -93,15 +101,18 @@ public class ChatbotService {
                     if(tool==ChatbotTool.search_library_help) {
                         if(!model.hasBudget(java.time.Duration.ofSeconds(6))) { results.add(failure("REQUEST_TIMEOUT",lang)); done=true; continue; }
                         var retrieved=knowledge.retrieveResult(args.getOrDefault("query",question),lang);
-                        if(retrieved.failure()!=null) results.add(failure(retrieved.failure(),lang));
-                        else if(retrieved.entries().isEmpty()) results.add(failure("NO_MATCH",lang));
+                        if(retrieved.failure()!=null) {
+                            retrievalFailure=retrieved.failure();
+                            catalog.entries().forEach(e->help.putIfAbsent(e.id(),e)); broadHelp=true;
+                        }
+                        else if(retrieved.entries().isEmpty()) { catalog.entries().forEach(e->help.putIfAbsent(e.id(),e)); broadHelp=true; }
                         else retrieved.entries().stream().limit(4).forEach(entry->help.putIfAbsent(entry.id(),entry));
                         responses.add(functionResponse(call,Map.of("topics",retrieved.entries().stream().map(FaqCatalog.Entry::id).toList(),
                             "state",retrieved.failure()==null?"complete":retrieved.failure())));
                     } else {
                         if(tool.personal) privateLookup[0]=true;
                         var result=reads.execute(tool,call.arguments(),tool.personal?readerId:null,lang);
-                        results.add(result);
+                        if(tool.personal) results.add(result); else publicReads.add(result);
                         if(!tool.personal) {
                             rememberBook(result,call.arguments(),reference);
                             responses.add(functionResponse(call,Map.of("answer",result.answer(),"cards",result.cards(),"total",result.total()==null?0:result.total())));
@@ -118,20 +129,48 @@ public class ChatbotService {
             if(!responses.isEmpty()) transcript.add(Map.of("role","user","parts",responses));
             if(!help.isEmpty() && plan.calls().stream().allMatch(c->c.name().equals("search_library_help"))) done=true;
             // A successful single independent lookup does not require a paid DONE round.
-            if(plan.calls().size()==1 && !"search_catalog".equals(plan.calls().getFirst().name())
-                && !results.isEmpty() && !"CLARIFY".equals(results.get(results.size()-1).status())) done=true;
+            if(plan.calls().size()==1 && (!results.isEmpty() || !publicReads.isEmpty())) {
+                var last=!publicReads.isEmpty()?publicReads.getLast():results.getLast();
+                // Empty discovery may retry with broader words; a successful discovery is already enough.
+                if(!"CLARIFY".equals(last.status()) && !("search_catalog".equals(plan.calls().getFirst().name()) && last.cards().isEmpty())) done=true;
+            }
         }
+        if(!publicReads.isEmpty()) results.add(publicAnswer(question,publicReads,lang));
         if(!help.isEmpty()) {
-            var entries=help.values().stream().limit(8).toList();
+            var entries=help.values().stream().limit(broadHelp?20:8).toList();
             var composed=model.compose(question,entries,lang);
             if(composed==null || composed.failure()!=null) {
-                entries.stream().limit(4).forEach(e->results.add(helpReply(e,null,lang)));
+                if(!broadHelp) entries.stream().limit(4).forEach(e->results.add(helpReply(e,null,lang)));
                 results.add(failure(composed==null?"AI_INVALID_RESPONSE":composed.failure(),lang));
-            } else if(composed.drafts().isEmpty()) results.add(failure("NO_MATCH",lang));
+            } else if(composed.drafts().isEmpty()) results.add(retrievalFailure!=null?failure(retrievalFailure,lang)
+                : refused?social("UNSUPPORTED","",lang):failure("NO_MATCH",lang));
             else for(var draft:composed.drafts()) entries.stream().filter(e->e.id().equals(draft.faqId())).findFirst()
                 .ifPresent(entry->results.add(helpReply(entry,draft.content(),lang)));
         }
         return results.isEmpty()?failure("NO_MATCH",lang):combine(results);
+    }
+    private ChatbotReply publicAnswer(String question,List<ChatbotReply> reads,String lang) {
+        boolean found=reads.stream().flatMap(r->r.cards().stream()).anyMatch(c->c.path().startsWith("/publicpage/book/"));
+        var useful=reads.stream().filter(r->!found || r.total()==null || r.total()>0 || !"/publicpage/search".equals(r.sourcePath())).distinct().toList();
+        if(useful.isEmpty()) useful=List.of(reads.getLast());
+        var narration=model.narrate(question,useful,lang);
+        var cards=new LinkedHashMap<String,ChatbotReply.Card>();
+        var sources=new LinkedHashSet<ChatbotReply.Source>();
+        for(var reply:useful) {
+            reply.cards().forEach(card->cards.putIfAbsent(card.path()+":"+card.id(),card));
+            sources.addAll(reply.sources());
+        }
+        boolean narrowed=narration!=null && narration.failure()==null && narration.selectedPaths()!=null
+            && cards.values().stream().anyMatch(card->!narration.selectedPaths().contains(card.path()));
+        if(narration!=null && narration.failure()==null && narration.selectedPaths()!=null) cards.values().removeIf(card->!narration.selectedPaths().contains(card.path()));
+        FaqContent content=null;
+        if(narration!=null && narration.failure()==null && narration.drafts().size()==1) content=narration.drafts().getFirst().content();
+        boolean noRelevant=narration!=null && narration.failure()==null && narration.drafts().isEmpty();
+        String text=noRelevant ? ("en".equals(lang)?"I could not confirm a suitable book from these search results.":"Tôi chưa xác nhận được ấn phẩm phù hợp với yêu cầu từ các kết quả tìm kiếm này.")
+            : content!=null?content.text():useful.stream().map(ChatbotReply::answer).distinct().collect(java.util.stream.Collectors.joining("\n\n"));
+        var last=useful.getLast();
+        return new ChatbotReply(last.status(),null,text,null,null,content,List.copyOf(sources),List.copyOf(cards.values()),
+            useful.size()==1 && !narrowed?last.total():null,useful.size()==1 && !narrowed?last.page():null,last.retrievedAt());
     }
     private static Map<String,Object> functionResponse(FaqIntentSelector.ToolCall call,Map<String,Object> response) {
         var result=new LinkedHashMap<String,Object>();
@@ -147,8 +186,8 @@ public class ChatbotService {
     private static ChatbotReply helpReply(FaqCatalog.Entry entry,FaqContent content,String lang) {
         var copy=entry.copy(lang);
         var body=content==null?FaqContent.fromSource(copy.answer()):content;
-        return new ChatbotReply("ANSWERED",entry.id(),body.text(),copy.question(),entry.sourcePath(),body,
-            List.of(new ChatbotReply.Source(copy.question(),entry.sourcePath())),List.of(),null,null,null);
+        return new ChatbotReply("ANSWERED",entry.id(),body.text(),copy.question(),entry.referencePath(),body,
+            List.of(new ChatbotReply.Source(copy.question(),entry.referencePath())),List.of(),null,null,null);
     }
     private static ChatbotReply combine(List<ChatbotReply> results) {
         if(results.size()==1) return results.get(0);

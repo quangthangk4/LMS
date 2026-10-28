@@ -45,7 +45,7 @@ test('multiple tool sections retain separate prose, cards and reference links', 
   expect(await screen.findByText('Khôi phục mật khẩu')).toBeInTheDocument();
   expect(screen.getByText('Có. Clean Code còn 2 bản ở CS2.')).toBeInTheDocument();
   expect(screen.getByText('A1')).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: 'Hướng dẫn' })).toHaveAttribute('href', '/publicpage/faq');
+  expect(screen.getByRole('link', { name: 'Xem hướng dẫn: Hướng dẫn' })).toHaveAttribute('href', '/publicpage/faq');
 });
 
 function view() { return render(<MemoryRouter><FaqChatbot /></MemoryRouter>); }

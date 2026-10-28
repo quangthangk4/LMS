@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useUpload } from '../contexts/UploadContext';
 import { useAuth } from '../contexts/AuthContext';
-import { ChatbotAnswerBody, ChatbotCards, safeChatPath } from './ChatbotAnswerBody';
+import { ChatbotAnswerBody, ChatbotReplyView } from './ChatbotAnswerBody';
 import { chatbotService, FaqAnswer, FaqContent, FaqSuggestion, FaqCard, FaqSource } from '../api/chatbotService';
 
 type Message = { role: 'user' | 'assistant'; text: string; content?: FaqContent | null; sourceTitle?: string; sourcePath?: string; cards?: FaqCard[]; sources?: FaqSource[]; total?: number | null; page?: number | null; retrievedAt?: string | null; sections?: FaqAnswer[] };
@@ -107,27 +107,8 @@ function FaqChatbotPanel({ language, personal }: { language: 'vi' | 'en'; person
         <p className="rounded-xl bg-slate-100 p-3 text-sm leading-relaxed dark:bg-slate-800">{t('Xin chào! Tôi có thể hướng dẫn sử dụng, tìm sách và tra cứu thông tin Library74. Bạn đọc đăng nhập có thể xem dữ liệu của chính mình.', 'Hello! I can help you use Library74, find books and look up library information. Signed-in readers can view their own records.')}</p>
         {messages.map((message, index) => <div key={index} className={`max-w-[95%] rounded-xl p-3 text-sm leading-relaxed ${message.role === 'user' ? 'ml-auto bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800'}`}>
           <span className="sr-only">{message.role === 'user' ? t('Bạn: ', 'You: ') : t('Trợ lý: ', 'Assistant: ')}</span>
-          <ChatbotAnswerBody text={message.text} content={message.role === 'assistant' ? message.content : undefined} />
-          {message.sections?.map((section, part) => <div key={part} className="mt-3 space-y-2 border-t border-slate-300 pt-3 first:mt-0 first:border-0 first:pt-0 dark:border-slate-600">
-            {section.sourceTitle && <h3 className="font-semibold">{section.sourceTitle}</h3>}
-            <ChatbotAnswerBody text={section.answer} content={section.content} />
-            {section.cards && <ChatbotCards cards={section.cards} language={language} />}
-            {section.total != null && <p className="text-xs text-slate-500 dark:text-slate-400">{t('Tổng kết quả', 'Total results')}: {section.total} · {t('Trang', 'Page')} {(section.page ?? 0) + 1}</p>}
-            {section.retrievedAt && <p className="text-xs text-slate-500 dark:text-slate-400">{t('Tra cứu lúc', 'Retrieved at')}: {new Date(section.retrievedAt).toLocaleString(en ? 'en-GB' : 'vi-VN')}</p>}
-            {section.sources?.filter(source => safeChatPath(source.path)).map((source, sourceIndex) => <Link key={sourceIndex} to={source.path} onClick={close} className="block text-xs text-blue-700 underline dark:text-blue-300">{source.title}</Link>)}
-          </div>)}
-          {message.cards && message.cards.length > 0 && <ChatbotCards cards={message.cards} language={language} />}
-          {message.total != null && <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">
-            {t('Tổng kết quả', 'Total results')}: {message.total} · {t('Trang', 'Page')} {(message.page ?? 0) + 1}
-          </p>}
-          {message.retrievedAt && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            {t('Tra cứu lúc', 'Retrieved at')}: {new Date(message.retrievedAt).toLocaleString(en ? 'en-GB' : 'vi-VN')}
-          </p>}
-          {message.sources && message.sources.length > 1 && message.sources.filter(source => safeChatPath(source.path) && source.path !== message.sourcePath).map((source, sourceIndex) =>
-            <Link key={sourceIndex} to={source.path} onClick={close} className="mt-2 block text-xs text-blue-700 underline dark:text-blue-300">{source.title}</Link>)}
-          {safeChatPath(message.sourcePath) && <Link to={message.sourcePath!} onClick={close} className={`mt-2 inline-block rounded text-xs font-semibold text-blue-700 underline dark:text-blue-300 ${focusClass}`}>
-            {t('Xem hướng dẫn: ', 'Read guide: ')}{message.sourceTitle}
-          </Link>}
+          {message.role === 'user' ? <ChatbotAnswerBody text={message.text} />
+            : <ChatbotReplyView answer={{ ...message, answer: message.text, status: 'ANSWERED' }} language={language} onNavigate={close} />}
         </div>)}
         {busy && <p role="status" className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><Loader2 aria-hidden="true" size={16} className="motion-safe:animate-spin" />{t('Đang suy nghĩ…', 'Thinking…')}</p>}
       </div>

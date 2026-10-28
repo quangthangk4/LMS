@@ -15,7 +15,7 @@ public enum ChatbotTool {
     get_publication_availability("Available copies of a book, campus and shelf. Does not reserve or reveal borrowers.", false, Set.of("query", "publicationId", "branch", "page")),
     list_publications("List newest or most-borrowed public books.", false, Set.of("sort", "branch", "page")),
     get_publication_rating_summary("Aggregate ratings of one book, without reviewer identities.", false, Set.of("query", "publicationId")),
-    get_my_loans("Current reader's active loans and due dates, or pending pickup slips when requested. Read only.", true, Set.of("page", "status")),
+    get_my_loans("Current reader's loans. DUE_SOON = needs returning urgently: overdue or due within three days; OVERDUE = past due. Read only.", true, Set.of("page", "status")),
     get_my_loan_history("Current reader's returned loan history. Date ranges default to return date; use dateType for borrow date.", true, Set.of("page", "dateFrom", "dateTo", "dateType")),
     get_my_fines("Current reader's fines, with full filtered count and amount, not just the first page.", true, Set.of("page", "status")),
     get_my_reservations("Current reader's reservations and pickup deadlines. Does not change them.", true, Set.of("page")),
@@ -40,7 +40,7 @@ public enum ChatbotTool {
                     "description", "CAMPUS_1 = Ly Thuong Kiet, CAMPUS_2 = Di An; ANY for both.");
                 case "sort" -> Map.of("type", "STRING", "enum", List.of("newest", "most_borrowed"));
                 case "status" -> Map.of("type", "STRING", "enum", this == get_my_loans
-                    ? List.of("ACTIVE", "BORROWING", "OVERDUE", "WAITING_FOR_PICKUP") : List.of("UNPAID", "PAID", "ALL"));
+                    ? List.of("ACTIVE", "BORROWING", "OVERDUE", "DUE_SOON", "WAITING_FOR_PICKUP") : List.of("UNPAID", "PAID", "ALL"));
                 case "dateType" -> Map.of("type", "STRING", "enum", List.of("borrowed", "returned"));
                 case "publicationId" -> Map.of("type", "STRING", "description", "Exact numeric publication ID, never a user ID.");
                 case "dateFrom", "dateTo" -> Map.of("type", "STRING", "description", "ISO local date YYYY-MM-DD, Vietnam timezone. Used with dateType.");

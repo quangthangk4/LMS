@@ -15,13 +15,18 @@ Không crawl, không mở Internet/source code, không hỏi đáp nội dung ch
 1. FE gửi câu hỏi hiện tại (tối đa 500 ký tự), ngôn ngữ và UUID hội thoại; BE lấy ngữ cảnh ngắn hạn từ Redis theo chủ thể.
 2. Khớp câu hỏi/alias chuẩn: trả nội dung có cấu trúc, không gọi LLM. Chủ đề quy định/cọc/phạt/nhận/gia hạn được kèm snapshot chính sách hiện hành.
 3. Chưa khớp: Gemini đề xuất một hoặc nhiều công cụ từ schema. BE kiểm tra allowlist, tham số và quyền trước từng lần thực thi. Giao tiếp xã hội (chào hỏi, giới thiệu khả năng, cảm ơn) được phân loại linh hoạt rồi trả nội dung công khai do BE kiểm soát, không cần alias câu hỏi chính xác.
-4. Nhánh hướng dẫn: vector search đúng version/ngôn ngữ → BE kiểm tra chunk thuộc nguồn → Gemini diễn đạt chỉ từ nguồn → kiểm tra đầu ra.
-5. Nhánh dữ liệu: BE SELECT, dựng lời đáp và thẻ trực tiếp. **Kết quả cá nhân không gửi sang Gemini**, kể cả trong vòng tool tiếp theo/lịch sử Redis. Model nhận câu hỏi và ngữ cảnh công khai ngắn để chọn công cụ; không nhận JWT hoặc toàn bộ hồ sơ. Hỏi khả dụng được trả Có/Không kèm đầu sách, cơ sở, số lượng; phân biệt không có đầu sách với có đầu sách nhưng hết bản sao.
-6. Ngoài phạm vi/thiếu dữ liệu/lỗi: từ chối, hỏi lại hoặc báo chưa tra cứu được; không tạo số liệu hay câu trả lời ngoài nguồn.
+4. Nhánh hướng dẫn: vector search đúng version/ngôn ngữ → BE kiểm tra chunk thuộc nguồn → Gemini diễn đạt chỉ từ nguồn → kiểm tra đầu ra. Planner nhận danh sách chủ đề có sẵn để nhận diện cách diễn đạt khác nhau. Trước khi từ chối ngoài phạm vi, hoặc khi truy xuất không đủ, kiểm tra thêm catalog FAQ công khai đã duyệt; không cần thêm alias cho từng câu đồng nghĩa. Nếu catalog vẫn không trả lời được thì giữ phân biệt lỗi index/provider với không có thông tin.
+5. Nhánh dữ liệu công khai: BE SELECT → Gemini viết **một câu trả lời cuối** từ các kết quả công khai được cung cấp. Trả lời ý chính/Có–Không trước, không xuất log từng tool, không tự gọi khả dụng sau một tìm kiếm sách đã đủ. Gemini chọn tối đa 5 đường dẫn thẻ phù hợp; BE chỉ chấp nhận đường dẫn thật trong kết quả và kiểm tra trích dẫn/số liệu. Nếu không có bằng chứng về độ phù hợp cho người mới, không khẳng định sách phù hợp chỉ từ kiến thức ngoài nguồn. Java và JavaScript được tách khi tìm theo từ; tra cứu chủ đề dùng thêm mô tả/tóm tắt đã lưu.
+6. Nhánh dữ liệu cá nhân: BE dựng câu trả lời ngắn từ số liệu thật. **Kết quả cá nhân không gửi sang Gemini**, kể cả để diễn đạt, trong vòng tool tiếp theo hay lịch sử Redis. Câu hỏi đã được gửi để chọn chức năng; không gửi JWT/toàn bộ hồ sơ. Ví dụ câu hỏi sách cần trả gấp dùng `DUE_SOON`: sách đang mượn đã quá hạn hoặc đến hạn trong 3 ngày tới, theo ngày Việt Nam; tính tổng toàn bộ bộ lọc và trả Có/Không trước danh sách. Trạng thái quá hạn khi hiển thị được đối chiếu ngày trả, kể cả scheduler chưa cập nhật cột status.
+7. Ngoài phạm vi/thiếu dữ liệu/lỗi: từ chối, hỏi lại hoặc báo chưa tra cứu được; không tạo số liệu hay câu trả lời ngoài nguồn.
 
 Vòng điều phối giới hạn tối đa 3 lượt lập kế hoạch, 4 lần thực thi tool, ngân sách xử lý dịch vụ AI khoảng 25 giây. Khóa hội thoại chống xử lý trùng. Không gọi thêm model chỉ để nói DONE sau một truy vấn độc lập đã đủ. Hướng dẫn nhiều chủ đề được tổng hợp từ nhiều nguồn (tối đa 4 phần), ví dụ quên mật khẩu và đăng nhập. Fallback provider có thể thêm HTTP request trong ngân sách còn lại.
 
 Câu trả lời RAG gồm summary, steps, bullets, note. BE kiểm tra ID nguồn, trích dẫn nguyên văn, kiểu/độ dài, số liệu có trong nguồn và không nhận URL/HTML tự sinh. Nếu chọn nguồn hợp lệ nhưng phần diễn đạt không đạt kiểm tra, dùng nội dung nguồn của chunk đó. Các kiểm tra giảm sai sót, không chứng minh mọi câu diễn đạt đều đúng ngữ nghĩa.
+
+Giao diện chỉ render nội dung mỗi câu trả lời một lần; không lấy answer làm tiêu đề hoặc nhãn liên kết. Các bản sao cùng đầu sách được gộp thành một thẻ. Mặc định hiển thị tối đa 3 đầu sách rồi có nút xem thêm; ưu tiên trạng thái/hạn trả hoặc bản sao/cơ sở. ISBN, nhà xuất bản, barcode và thông tin tra cứu chi tiết nằm trong phần mở rộng, không dàn dài trong khung chat.
+
+Liên kết nguồn hướng dẫn có fragment theo ID chủ đề (`/publicpage/faq#password`, `/publicpage/guide#borrow`). Trang đích mở đúng mục và cuộn/focus sau khi tải nội dung. ScrollToTop không ghi đè vị trí neo. Liên kết sách/hồ sơ dùng nhãn riêng như Chi tiết ấn phẩm/Sách của tôi; không gắn tiền tố “Xem hướng dẫn” cho dữ liệu mượn trả. Fragment được BE tạo, không do model tự sinh. Không sửa nội dung/phiên bản nguồn hoặc embedding chỉ để thêm liên kết neo.
 
 ## 2. Nguồn hướng dẫn dùng chung
 
@@ -165,13 +170,24 @@ Kết quả chạy local ngày 28/10/2026:
 
 | Kiểm tra | Kết quả |
 |---|---|
-| Maven test, gồm PostgreSQL/Redis Testcontainers và Flyway V63 | 64 lớp/suite, 401 test đạt, 0 lỗi, 0 skip (toàn bộ suite và lượt kiểm tra bổ sung) |
-| Jest FE | 36 suite, 229 test đạt |
+| Maven test, gồm PostgreSQL/Redis Testcontainers và Flyway V63 | 64 lớp/suite, 410 test đạt, 0 lỗi, 0 skip |
+| Jest FE | 37 suite, 236 test đạt |
 | TypeScript và Vite production build | Đạt; còn cảnh báo bundle lớn có sẵn |
 | Pytest AI, có database pgvector riêng | 92 đạt, 3 live API test opt-in skip |
 
 Các con số trên là lượt xác minh mã nguồn, không phải báo cáo chạy trên production hoặc đo độ chính xác Gemini.
 
 Bộ test tự động không thay thế nghiệm thu Gemini thật: thử Việt/Anh/không dấu, sách trùng tên, ngoài phạm vi/prompt injection, đúng nguồn/số liệu, độ trễ và quota/model trước công bố chất lượng. Không có giao dịch thật hoặc truy cập production trong bước phát triển này.
+
+Các câu cần nghiệm thu sau deploy BE/FE:
+
+| Câu hỏi / thao tác | Kỳ vọng |
+|---|---|
+| “ai làm ra cái trang web này vậy?” | Nhận diện chủ đề creator từ nguồn đã duyệt, không từ chối chỉ vì khác câu mẫu |
+| Bấm nguồn quên mật khẩu | URL có `#password`, mở đúng mục và giữ vị trí sau khi tải nội dung |
+| “có sách về lập trình Java không?” | Một lời đáp cuối, các thẻ sách liên quan; không coi JavaScript là Java chỉ vì trùng chuỗi |
+| “sách cho người mới học lập trình” | Tìm chủ đề ngắn trong tên/mô tả/tóm tắt, chỉ nhận xét độ phù hợp có bằng chứng; không bảo đảm phù hợp từ kiến thức ngoài nguồn |
+| “tôi có sách nào cần trả gấp không?” | Có/Không trước, số lượng từ SQL theo JWT, ưu tiên sách quá hạn hoặc hạn trong 3 ngày; không gửi kết quả cá nhân cho model |
+| Tra cứu nhiều lần trong cùng câu | Không hiển thị log từng lần tìm rỗng, không lặp answer thành tiêu đề/nhãn nguồn; các bản sao cùng sách được gộp |
 
 Đánh giá retrieval riêng với weights thật: tại LMS_AI chạy python -m scripts.evaluate_chatbot_retrieval. Script không gọi DB/Gemini, không đọc dữ liệu tài khoản. Lượt kiểm tra 27/10/2026: 40 tài liệu → 40 chunk, dài nhất 180 token trong context 256, 768 chiều; tìm được nguồn mong đợi trong top 5 ở 19/20 câu diễn đạt lại Việt/Anh. Một câu tiếng Anh về kéo dài thời hạn mượn còn bị bỏ sót. Bộ 20 câu dùng để chỉnh bước truy xuất, không phải tập nghiệm thu độc lập hoặc độ chính xác trả lời 95%. Cần mở rộng bộ đánh giá và kiểm tra routing/diễn đạt Gemini trên staging.

@@ -69,7 +69,7 @@ public class ChatbotReadQueries {
                 if ("branch".equals(key) && !Set.of("ANY", "CAMPUS_1", "CAMPUS_2").contains(text)) throw new IllegalArgumentException("Invalid campus");
                 if ("sort".equals(key) && !Set.of("newest", "most_borrowed").contains(text)) throw new IllegalArgumentException("Invalid sort");
                 if ("status".equals(key) && !(tool == ChatbotTool.get_my_loans
-                    ? Set.of("ACTIVE", "BORROWING", "OVERDUE", "WAITING_FOR_PICKUP") : Set.of("ALL", "UNPAID", "PAID")).contains(text))
+                    ? Set.of("ACTIVE", "BORROWING", "OVERDUE", "DUE_SOON", "WAITING_FOR_PICKUP") : Set.of("ALL", "UNPAID", "PAID")).contains(text))
                     throw new IllegalArgumentException("Invalid status");
                 if ("dateType".equals(key) && !Set.of("borrowed", "returned").contains(text)) throw new IllegalArgumentException("Invalid date type");
                 if ("dateFrom".equals(key) || "dateTo".equals(key)) {
@@ -102,7 +102,7 @@ public class ChatbotReadQueries {
             fact(en ? "Unpaid fines block borrowing" : "Chặn mượn khi còn nợ phạt", Boolean.TRUE.equals(row.get("block_borrow_when_unpaid_fines")) ? (en ? "Yes" : "Có") : (en ? "No" : "Không")));
         String title = en ? "Current circulation policy" : "Chính sách mượn trả hiện hành";
         return reply(title, List.of(new Card("policy", title, en ? "General policy; individual eligibility may differ." : "Quy định chung; từng giao dịch còn phải đáp ứng điều kiện riêng.",
-            null, "/publicpage/faq", facts)), 1L, 0, "/publicpage/faq");
+            null, "/publicpage/faq#current-policy", facts)), 1L, 0, "/publicpage/faq#current-policy", en);
     }
 
     private ChatbotReply catalog(ChatbotTool tool, Map<String, Object> p, Map<String, String> args, int page, boolean en) {
@@ -112,9 +112,11 @@ public class ChatbotReadQueries {
         String from = """
             FROM publications p WHERE
             (CAST(:publicationId AS BIGINT) IS NULL OR p.id=:publicationId)
-            AND (:query='' OR unaccent(LOWER(p.title)) LIKE unaccent(:pattern) OR LOWER(COALESCE(p.isbn,'')) LIKE :pattern
-                OR EXISTS (SELECT 1 FROM publication_authors pa JOIN authors a ON a.id=pa.author_id
-                           WHERE pa.publication_id=p.id AND unaccent(LOWER(a.name)) LIKE unaccent(:pattern)))
+            AND (:query='' OR LOWER(COALESCE(p.isbn,''))=:query OR
+                to_tsvector('simple',unaccent(CONCAT_WS(' ',p.title,
+                    (SELECT STRING_AGG(a.name,' ') FROM publication_authors pa JOIN authors a ON a.id=pa.author_id WHERE pa.publication_id=p.id)
+            """ + (oneBook ? "" : ",p.description,p.ai_summary") + """
+                ))) @@ plainto_tsquery('simple',unaccent(:query)))
             """ + (oneBook ? "" : " AND (CAST(:branch AS VARCHAR) IS NULL OR EXISTS (SELECT 1 FROM items bi WHERE bi.publication_id=p.id AND bi.branch=:branch)) ");
         Long count = jdbc.queryForObject("SELECT COUNT(*) " + from, p, Long.class);
         var bookParams = new HashMap<>(p);
@@ -141,7 +143,7 @@ public class ChatbotReadQueries {
                     : (en ? "No. " : "Không. ") + book.get("title") + (en ? " is in the catalog, but has no available copies " : " có trong thư viện, nhưng chưa có bản sao sẵn sàng cho mượn ") + campus + ".";
                 return reply(availability,
                     items.stream().map(item -> new Card(id(item), text(book.get("title")), null, image(book.get("cover_image_url")), path,
-                        List.of(fact("Barcode", item.get("barcode")), fact(en ? "Campus" : "Cơ sở", item.get("branch")), fact(en ? "Shelf" : "Vị trí kệ", item.get("location"))))).toList(), total, page, path);
+                        List.of(fact("Barcode", item.get("barcode")), fact(en ? "Campus" : "Cơ sở", item.get("branch")), fact(en ? "Shelf" : "Vị trí kệ", item.get("location"))))).toList(), total, page, path, en);
             }
             if (tool == ChatbotTool.get_publication_rating_summary) {
                 var ratings = jdbc.queryForList("SELECT star,COUNT(*) AS votes FROM ratings WHERE publication_id=:publicationId GROUP BY star ORDER BY star DESC", p);
@@ -150,14 +152,14 @@ public class ChatbotReadQueries {
                 double weighted = ratings.stream().mapToDouble(row -> ((Number)row.get("star")).doubleValue() * ((Number)row.get("votes")).longValue()).sum();
                 facts.add(0, fact(en ? "Average rating" : "Điểm trung bình", votes == 0 ? "—" : String.format(en ? java.util.Locale.US : java.util.Locale.forLanguageTag("vi-VN"), "%.2f/5", weighted / votes)));
                 facts.add(1, fact(en ? "Total ratings" : "Số đánh giá", votes));
-                return reply(en ? "Recorded rating distribution" : "Thống kê đánh giá đã ghi nhận", List.of(new Card(id(book), text(book.get("title")), null, image(book.get("cover_image_url")), path, facts)), 1L, 0, path);
+                return reply(en ? "Recorded rating distribution" : "Thống kê đánh giá đã ghi nhận", List.of(new Card(id(book), text(book.get("title")), null, image(book.get("cover_image_url")), path, facts)), 1L, 0, path, en);
             }
         }
         String message = count == null || count == 0 ? (en ? "No matching book was found." : "Chưa tìm thấy sách phù hợp.")
             : oneBook && count > 1 ? (en ? "Several books match. Please specify the exact title, ISBN or publication ID." : "Có nhiều ấn phẩm phù hợp. Bạn hãy chỉ rõ tên, ISBN hoặc mã ấn phẩm.")
-            : en ? "Book information recorded in the library" : "Thông tin ấn phẩm được lưu trong thư viện";
+            : (en ? "I found " : "Tôi tìm thấy ") + count + (en ? " matching books in the library." : " ấn phẩm phù hợp trong thư viện.");
         return reply(message, rows.stream().map(book -> new Card(id(book), text(book.get("title")), text(book.get("authors")),
-            image(book.get("cover_image_url")), bookPath(book), bookFacts(book, tool == ChatbotTool.get_publication_details, en))).toList(), count, page, "/publicpage/search");
+            image(book.get("cover_image_url")), bookPath(book), bookFacts(book, tool == ChatbotTool.get_publication_details || tool == ChatbotTool.search_catalog, en))).toList(), count, page, "/publicpage/search", en);
     }
 
     private List<Fact> bookFacts(Map<String, Object> row, boolean detail, boolean en) {
@@ -178,12 +180,14 @@ public class ChatbotReadQueries {
             from = "FROM borrowing_transactions t JOIN items i ON i.id=t.item_id JOIN publications p ON p.id=i.publication_id WHERE t.user_id=:userId AND "
                 + (tool == ChatbotTool.get_my_loans ? "t.status IN ('BORROWING','OVERDUE')" : "t.status IN ('RETURNED','LOST_RECOVERED')");
             if (tool == ChatbotTool.get_my_loans && args.containsKey("status") && !"ACTIVE".equals(args.get("status"))) {
-                from = from.replace("t.status IN ('BORROWING','OVERDUE')", "t.status=:loanStatus"); p.put("loanStatus", args.get("status"));
+                if ("DUE_SOON".equals(args.get("status"))) from += " AND t.due_date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Ho_Chi_Minh')::date + 3";
+                else if ("OVERDUE".equals(args.get("status"))) from += " AND t.due_date < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Ho_Chi_Minh')::date";
+                else { from = from.replace("t.status IN ('BORROWING','OVERDUE')", "t.status=:loanStatus"); p.put("loanStatus", args.get("status")); }
             }
             String dateColumn = "borrowed".equals(args.get("dateType")) ? "t.borrowed_date" : "t.returned_date";
             if (args.containsKey("dateFrom")) { from += " AND (" + dateColumn + " AT TIME ZONE 'Asia/Ho_Chi_Minh')::date>=CAST(:dateFrom AS DATE)"; p.put("dateFrom", args.get("dateFrom")); }
             if (args.containsKey("dateTo")) { from += " AND (" + dateColumn + " AT TIME ZONE 'Asia/Ho_Chi_Minh')::date<=CAST(:dateTo AS DATE)"; p.put("dateTo", args.get("dateTo")); }
-            select = "SELECT t.id,p.title,p.cover_image_url,i.barcode,t.status,t.borrowed_date,t.due_date,t.returned_date,t.renewal_count ";
+            select = "SELECT t.id,p.title,p.cover_image_url,i.barcode,CASE WHEN t.status IN ('BORROWING','OVERDUE') AND t.due_date < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Ho_Chi_Minh')::date THEN 'OVERDUE' ELSE t.status END AS status,t.borrowed_date,t.due_date,t.returned_date,t.renewal_count ";
             order = tool == ChatbotTool.get_my_loans ? "t.due_date ASC,t.id ASC" : "t.returned_date DESC NULLS LAST,t.id DESC";
             card = row -> new Card(id(row), text(row.get("title")), null, image(row.get("cover_image_url")), path,
                 List.of(fact("Barcode", row.get("barcode")), fact(en ? "Status" : "Trạng thái", label(row.get("status"), en)),
@@ -220,17 +224,50 @@ public class ChatbotReadQueries {
         Long total = jdbc.queryForObject("SELECT COUNT(*) " + from, p, Long.class);
         String message = total == null || total == 0 ? (en ? "No records match this filter." : "Bạn chưa có dữ liệu phù hợp với bộ lọc này.")
             : en ? "Your records at the time of lookup" : "Dữ liệu của bạn tại thời điểm tra cứu";
+        if (tool == ChatbotTool.get_my_loans) {
+            long count=total==null?0:total;
+            String status=args.getOrDefault("status","ACTIVE");
+            if("DUE_SOON".equals(status) || "OVERDUE".equals(status)) {
+                String condition="OVERDUE".equals(status) ? (en?"overdue":"đã quá hạn") : (en?"overdue or due within the next 3 days":"đã quá hạn hoặc đến hạn trong 3 ngày tới");
+                message=count==0 ? (en?"No, you have no books ":"Không, hiện bạn không có sách ")+condition+"."
+                    : (en?"Yes, you have ":"Có, bạn có ")+count+(en?" books ":" cuốn ")+condition+(en?". Please prioritize returning these.":". Bạn nên ưu tiên trả các cuốn sau.");
+            } else message=count==0 ? (en?"You have no loans matching this filter.":"Bạn chưa có sách đang mượn phù hợp với yêu cầu.")
+                : (en?"You currently have ":"Bạn đang có ")+count+(en?" loans matching this filter.":" cuốn theo bộ lọc này.");
+        }
         if (tool == ChatbotTool.get_my_fines) {
             BigDecimal amount = jdbc.queryForObject("SELECT COALESCE(SUM(f.fine_amount),0) " + from, p, BigDecimal.class);
-            message += (en ? ". Total amount for this filter: " : ". Tổng tiền theo bộ lọc: ") + money(amount);
+            String status=args.getOrDefault("status","UNPAID");
+            if("UNPAID".equals(status)) message=total==null || total==0 ? (en?"You have no unpaid fines.":"Hiện bạn không có phí phạt chưa thanh toán.")
+                : (en?"You have ":"Bạn có ")+total+(en?" unpaid fines, totaling ":" khoản phạt chưa thanh toán, tổng cộng ")+money(amount)+".";
+            else message=(en?"I found ":"Tôi tìm thấy ")+(total==null?0:total)+(en?" fine records, totaling ":" khoản phạt theo yêu cầu, tổng cộng ")+money(amount)+".";
+        } else if(tool != ChatbotTool.get_my_loans) {
+            long count=total==null?0:total;
+            String noun=switch(tool) {
+                case get_my_reservations -> en?"reservations":"lượt đặt trước";
+                case get_my_wishlist -> en?"saved books":"sách yêu thích";
+                case get_my_notifications -> en?"notifications":"thông báo";
+                default -> en?"returned loans":"lượt mượn đã trả";
+            };
+            message=count==0 ? (en?"You have no ":"Bạn chưa có ")+noun+(en?" matching this request.":" phù hợp với yêu cầu này.")
+                : (en?"I found ":"Tôi tìm thấy ")+count+" "+noun+(en?" for you.":" của bạn.");
         }
         var rows = jdbc.queryForList(select + from + " ORDER BY " + order + " LIMIT :limit OFFSET :offset", p);
-        return reply(message, rows.stream().map(card).toList(), total, page, path);
+        return reply(message, rows.stream().map(card).toList(), total, page, path, en);
     }
 
-    private static ChatbotReply reply(String message, List<Card> cards, Long total, int page, String path) {
-        return new ChatbotReply("ANSWERED", null, message, message, path, null,
-            List.of(new Source(message, path)), cards, total == null ? 0L : total, page, Instant.now());
+    private static ChatbotReply reply(String message, List<Card> cards, Long total, int page, String path, boolean en) {
+        String title=switch(path) {
+            case "/userpage/my-books" -> en?"My books":"Sách của tôi";
+            case "/userpage/fines" -> en?"My fines":"Phí phạt của tôi";
+            case "/userpage/reservations" -> en?"My reservations":"Đặt trước của tôi";
+            case "/userpage/wishlist" -> en?"My wishlist":"Sách yêu thích";
+            case "/userpage/notifications" -> en?"My notifications":"Thông báo của tôi";
+            case "/publicpage/search" -> en?"Book catalog":"Danh mục sách";
+            case "/publicpage/faq#current-policy" -> en?"Circulation policy":"Quy định mượn trả";
+            default -> en?"Book details":"Chi tiết ấn phẩm";
+        };
+        return new ChatbotReply("ANSWERED", null, message, title, path, null,
+            List.of(new Source(title, path)), cards, total == null ? 0L : total, page, Instant.now());
     }
     private static Fact fact(String label, Object value) { return new Fact(label, text(value)); }
     private static String label(Object value, boolean en) {

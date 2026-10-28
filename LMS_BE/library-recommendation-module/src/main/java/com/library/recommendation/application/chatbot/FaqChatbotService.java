@@ -28,7 +28,7 @@ public class FaqChatbotService {
             if (entry.isPresent()) {
                 if (draft.content() == null) return approved(entry.get(), language);
                 return new Answer("ANSWERED", id, draft.content().text(), entry.get().copy(language).question(),
-                    entry.get().sourcePath(), draft.content());
+                    entry.get().referencePath(), draft.content());
             }
         }
         boolean en = "en".equals(language);
@@ -44,7 +44,7 @@ public class FaqChatbotService {
 
     private Answer approved(FaqCatalog.Entry entry, String language) {
         var copy = entry.copy(language);
-        return new Answer("ANSWERED", entry.id(), copy.answer(), copy.question(), entry.sourcePath(), FaqContent.fromSource(copy.answer()));
+        return new Answer("ANSWERED", entry.id(), copy.answer(), copy.question(), entry.referencePath(), FaqContent.fromSource(copy.answer()));
     }
 
 }
