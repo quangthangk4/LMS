@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { BookOpen, Loader2, MessageCircle, Send, Trash2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -42,10 +42,10 @@ function FaqChatbotPanel({ language, personal }: { language: 'vi' | 'en'; person
     }).catch(() => { if (!controller.signal.aborted) setSuggestionError(true); });
     return () => controller.abort();
   }, [open, language]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     // Scroll the transcript only; never scroll the page or change route/query params.
     if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
-  }, [messages, busy]);
+  }, [open, messages, busy]);
 
   const cancelRequest = () => {
     current.current?.abort(); current.current = null; setBusy(false);

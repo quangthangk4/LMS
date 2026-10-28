@@ -33,6 +33,18 @@ test('closing hides the panel but lets the answer complete so browser and Redis 
   await act(async()=>finish({data:{status:'ANSWERED',format:'markdown',answer:'Chào bạn, mình có thể giúp gì?'}}));
   await open();expect(screen.getByText('Chào bạn, mình có thể giúp gì?')).toBeInTheDocument();
 });
+
+test('reopening unchanged conversation scrolls the new transcript to the latest message',async()=>{
+  const height=jest.spyOn(HTMLElement.prototype,'scrollHeight','get').mockReturnValue(1200);
+  try {
+    view();await open();send('Cách mượn sách?');await screen.findByText('đăng nhập');
+    screen.getByRole('log').scrollTop=0;
+    fireEvent.click(screen.getByRole('button',{name:'Đóng trợ lý'}));
+    await open();
+    expect(screen.getByRole('log').scrollTop).toBe(1200);
+    expect(ask).toHaveBeenCalledTimes(1);
+  } finally {height.mockRestore();}
+});
 test('clear invalidates the old conversation and ignores its late response',async()=>{
   let finish!: (result:any)=>void;ask.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));view();await open();send('Java');
   const id=ask.mock.calls[0][4];const signal=ask.mock.calls[0][2] as AbortSignal;
