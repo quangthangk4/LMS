@@ -4,13 +4,13 @@ import { Link } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useUpload } from '../contexts/UploadContext';
 import { useAuth } from '../contexts/AuthContext';
-import { ChatbotAnswerBody, ChatbotReplyView } from './ChatbotAnswerBody';
-import { chatbotService, FaqAnswer, FaqContent, FaqSuggestion, FaqCard, FaqSource } from '../api/chatbotService';
+import { ChatbotMarkdown } from './ChatbotMarkdown';
+import { chatbotService, ChatbotAnswer, FaqSuggestion } from '../api/chatbotService';
 
-type Message = { role: 'user' | 'assistant'; text: string; content?: FaqContent | null; sourceTitle?: string; sourcePath?: string; cards?: FaqCard[]; sources?: FaqSource[]; total?: number | null; page?: number | null; retrievedAt?: string | null; sections?: FaqAnswer[] };
+type Message = { role: 'user' | 'assistant'; text: string; truncated?: boolean };
 const focusClass = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900';
 
-/** Only current questions are uploaded; private tool results stay server-rendered data. */
+/** Gemini owns the answer; the browser renders Markdown and keeps no separate tool/card state. */
 function FaqChatbotPanel({ language, personal }: { language: 'vi' | 'en'; personal: boolean }) {
   const en = language === 'en';
   const t = (vi: string, english: string) => en ? english : vi;
@@ -51,7 +51,7 @@ function FaqChatbotPanel({ language, personal }: { language: 'vi' | 'en'; person
     current.current?.abort(); current.current = null; setBusy(false);
   };
   const close = () => {
-    cancelRequest(); setOpen(false); launcher.current?.focus({ preventScroll: true });
+    setOpen(false); launcher.current?.focus({ preventScroll: true });
   };
   const clear = () => {
     if (conversationId.current) void chatbotService.clear(conversationId.current, personal).catch(() => {});
@@ -69,12 +69,10 @@ function FaqChatbotPanel({ language, personal }: { language: 'vi' | 'en'; person
       if (!conversationId.current) conversationId.current = crypto.randomUUID();
       const response = await chatbotService.ask(question, language, controller.signal, personal, conversationId.current);
       if (controller.signal.aborted || current.current !== controller) return;
-      const answer: FaqAnswer = response.data;
+      const answer: ChatbotAnswer = response.data;
       if (answer.conversationId) conversationId.current = answer.conversationId;
       setContextNotice(!!answer.contextReset && messages.length > 0);
-      setMessages(previous => [...previous, { role: 'assistant' as const, text: answer.answer,
-        content: answer.content, sourceTitle: answer.sourceTitle, sourcePath: answer.sourcePath,
-        cards: answer.cards, sources: answer.sources, total: answer.total, page: answer.page, retrievedAt: answer.retrievedAt, sections: answer.sections }].slice(-40));
+      setMessages(previous => [...previous, { role: 'assistant' as const, text: answer.answer, truncated: answer.reasonCode === 'OUTPUT_TRUNCATED' }].slice(-40));
     } catch (reason: unknown) {
       if (controller.signal.aborted || current.current !== controller) return;
       const failure = reason as { status?: number; response?: { status?: number } };
@@ -104,11 +102,12 @@ function FaqChatbotPanel({ language, personal }: { language: 'vi' | 'en'; person
         <button type="button" onClick={close} aria-label={t('Đóng trợ lý', 'Close assistant')} className={`rounded-lg p-2.5 hover:bg-blue-100 dark:hover:bg-slate-700 ${focusClass}`}><X aria-hidden="true" size={18} /></button>
       </header>
       <div ref={transcript} role="log" aria-label={t('Hội thoại hướng dẫn', 'Help conversation')} aria-live="polite" aria-relevant="additions" className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4">
-        <p className="rounded-xl bg-slate-100 p-3 text-sm leading-relaxed dark:bg-slate-800">{t('Xin chào! Tôi có thể hướng dẫn sử dụng, tìm sách và tra cứu thông tin Library74. Bạn đọc đăng nhập có thể xem dữ liệu của chính mình.', 'Hello! I can help you use Library74, find books and look up library information. Signed-in readers can view their own records.')}</p>
+        {messages.length === 0 && !busy && <p className="py-4 text-center text-sm text-slate-500 dark:text-slate-400">{t('Nhập câu hỏi về Library74 để bắt đầu.', 'Ask a question about Library74 to get started.')}</p>}
         {messages.map((message, index) => <div key={index} className={`max-w-[95%] rounded-xl p-3 text-sm leading-relaxed ${message.role === 'user' ? 'ml-auto bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800'}`}>
           <span className="sr-only">{message.role === 'user' ? t('Bạn: ', 'You: ') : t('Trợ lý: ', 'Assistant: ')}</span>
-          {message.role === 'user' ? <ChatbotAnswerBody text={message.text} />
-            : <ChatbotReplyView answer={{ ...message, answer: message.text, status: 'ANSWERED' }} language={language} onNavigate={close} />}
+          {message.role === 'user' ? <p className="whitespace-pre-wrap break-words">{message.text}</p>
+            : <ChatbotMarkdown text={message.text} onNavigate={close} />}
+          {message.truncated && <p role="status" className="mt-2 text-xs text-amber-800 dark:text-amber-300">{t('Câu trả lời bị ngắt do giới hạn đầu ra của AI. Bạn có thể yêu cầu tiếp tục.', 'The AI response reached its output limit. You can ask it to continue.')}</p>}
         </div>)}
         {busy && <p role="status" className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><Loader2 aria-hidden="true" size={16} className="motion-safe:animate-spin" />{t('Đang suy nghĩ…', 'Thinking…')}</p>}
       </div>

@@ -8,10 +8,12 @@ module.exports = {
     '^@/(.*)$': '<rootDir>/$1',
   },
   transform: {
+    '^.+node_modules[\\\\/](react-markdown|remark-gfm)[\\\\/].+\\.js$': '<rootDir>/scripts/jest-markdown-transform.cjs',
     '^.+\\.(ts|tsx)$': ['ts-jest', {
       useESM: false,
       tsconfig: { jsx: 'react-jsx', esModuleInterop: true },
     }],
   },
+  transformIgnorePatterns: ['/node_modules/(?!(react-markdown|remark-gfm)/)'],
   testMatch: ['<rootDir>/src/**/*.test.{ts,tsx}'],
 };

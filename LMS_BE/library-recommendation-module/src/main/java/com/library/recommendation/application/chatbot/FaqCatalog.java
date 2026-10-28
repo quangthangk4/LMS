@@ -68,12 +68,6 @@ public class FaqCatalog {
     public Optional<Entry> find(String id) {
         return entries.stream().filter(entry -> entry.id().equals(id)).findFirst();
     }
-    public Optional<Entry> exactMatch(String question) {
-        String normalized = normalize(question);
-        return entries.stream().filter(entry -> java.util.stream.Stream.of(entry.vi(), entry.en())
-            .anyMatch(copy -> normalize(copy.question()).equals(normalized)
-                || copy.aliases().stream().anyMatch(alias -> normalize(alias).equals(normalized)))).findFirst();
-    }
     private static String normalize(String value) {
         return Normalizer.normalize(value, Normalizer.Form.NFD).replaceAll("\\p{M}", "")
             .toLowerCase(Locale.ROOT).replace('đ', 'd').replaceAll("[^a-z0-9]+", " ").trim();

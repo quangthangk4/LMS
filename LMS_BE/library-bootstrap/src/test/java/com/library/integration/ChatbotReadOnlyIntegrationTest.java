@@ -20,7 +20,6 @@ import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactor
 import org.springframework.data.redis.core.StringRedisTemplate;
 import com.library.recommendation.infrastructure.cache.RedisStateStore;
 import com.library.recommendation.application.chatbot.ChatConversationStore;
-import com.library.recommendation.application.chatbot.ChatbotReply;
 import com.library.recommendation.application.impl.GetRecommendationsUseCaseImpl;
 import com.library.recommendation.infrastructure.ai.AiGatewayService;
 import java.time.Duration;
@@ -43,6 +42,7 @@ class ChatbotReadOnlyIntegrationTest {
     static ChatbotReadQueries queries;
     static TransactionTemplate transaction;
     static final ObjectMapper mapper = new ObjectMapper();
+    @SuppressWarnings("unchecked") static java.util.List<java.util.Map<String,Object>> records(java.util.Map<String,Object> result) { return (java.util.List<java.util.Map<String,Object>>)result.get("records"); }
 
     @BeforeAll static void setup() {
         var source = new PGSimpleDataSource();
@@ -76,7 +76,7 @@ class ChatbotReadOnlyIntegrationTest {
         UUID id=UUID.randomUUID();
         for(int n=0;n<8;n++) {
             var session=conversations.begin(id,7L,"vi");
-            conversations.finish(session,"Question "+n,ChatbotReply.message("ANSWERED","Public guidance"),"book=42 campus=CAMPUS_2");
+            conversations.finish(session,"Question "+n,"Public guidance");
         }
         var session=conversations.begin(id,7L,"vi");
         assertThat(session.context().turns()).hasSize(6);
@@ -84,25 +84,25 @@ class ChatbotReadOnlyIntegrationTest {
         assertThat(redis.getExpire(session.key())).isBetween(1790L,1800L);
         var stranger=conversations.begin(id,8L,"vi");
         assertThat(stranger.context().turns()).isEmpty();
-        conversations.finish(stranger,"Hello",ChatbotReply.message("ANSWERED","Hi"),null);
+        conversations.finish(stranger,"Hello","Hi");
         conversations.clear(id,7L);
-        conversations.finish(session,"Late request",ChatbotReply.message("ANSWERED","Must not persist"),null);
+        conversations.finish(session,"Late request","Must not persist");
         assertThat(state.read(session.key()).value()).isEqualTo("CLEARED");
         var old=conversations.begin(UUID.randomUUID(),7L,"vi");
-        conversations.finish(old,"Old question",ChatbotReply.message("ANSWERED","Old context"),null);
+        conversations.finish(old,"Old question","Old context");
         conversations.revoke(7L);
         var afterLogout=conversations.begin(UUID.fromString(old.id()),7L,"vi");
         assertThat(afterLogout.key()).isNotEqualTo(old.key());
         assertThat(afterLogout.context().turns()).isEmpty();
-        conversations.finish(afterLogout,"New session",ChatbotReply.message("ANSWERED","Hi"),null);
+        conversations.finish(afterLogout,"New session","Hi");
         UUID expiring=UUID.randomUUID();
         var prior=conversations.begin(expiring,null,"en");
-        conversations.finish(prior,"Hello",ChatbotReply.message("ANSWERED","Hi"),null);
+        conversations.finish(prior,"Hello","Hi");
         redis.expire(prior.key(),Duration.ZERO);
         var expired=conversations.begin(expiring,null,"en");
         assertThat(expired.context().turns()).isEmpty();
         assertThat(expired.reset()).isTrue();
-        conversations.finish(expired,"New question",ChatbotReply.message("ANSWERED","Hi"),null);
+        conversations.finish(expired,"New question","Hi");
     }
 
     @Test void recommendationsUseEightHourRedisCacheButHydrateFreshSqlAndRefreshExplicitly() {
@@ -125,6 +125,28 @@ class ChatbotReadOnlyIntegrationTest {
         recommendations.refresh(user,2);
         verify(ai,times(2)).getRecommendations(eq(user),any(),eq(20));
     }
+    @Test void contextStoresFullMarkdownQuestionAnswerPairsIncludingAuthorizedPersonalRepliesButNoToolState() throws Exception {
+        var conversations=new ChatConversationStore(state,mapper);
+        var id=UUID.randomUUID();var session=conversations.begin(id,7L,"vi");
+        String answer="Bạn có **2 cuốn cần trả**.\n\n1. [Sách thứ nhất](/publicpage/book/42)\n2. [Sách thứ hai](/publicpage/book/43)\n\n"+"Giải thích chi tiết. ".repeat(100);
+        assertThat(conversations.finish(session,"Tôi cần trả sách nào?",answer)).isTrue();
+        var next=conversations.begin(id,7L,"vi");
+        assertThat(next.context().turns().getFirst().answer()).isEqualTo(answer);
+        var json=mapper.readTree(state.read(next.key()).value());
+        assertThat(json.size()).isEqualTo(2);assertThat(json.path("turns").get(0).size()).isEqualTo(2);
+        assertThat(json.toString()).doesNotContain("functionResponse","bookReference","publicAnswer");
+        conversations.release(next);
+    }
+    @Test void byteBudgetEvictsWholeOldTurnsWithoutTruncatingTheLatestAnswer() {
+        var conversations=new ChatConversationStore(state,mapper);var id=UUID.randomUUID();
+        String first="A".repeat(40000),second="B".repeat(40000);
+        var one=conversations.begin(id,null,"vi");conversations.finish(one,"Question 1",first);
+        var two=conversations.begin(id,null,"vi");conversations.finish(two,"Question 2",second);
+        var latest=conversations.begin(id,null,"vi");
+        assertThat(latest.context().turns()).hasSize(1);
+        assertThat(latest.context().turns().getFirst()).isEqualTo(new ChatConversationStore.Turn("Question 2",second));
+        conversations.release(latest);
+    }
 
     @Test void availabilityDistinguishesExistingBookWithoutCampusCopiesFromMissingPublication() {
         Long book=jdbc.queryForObject("SELECT MIN(id) FROM publications",Long.class);
@@ -135,11 +157,11 @@ class ChatbotReadOnlyIntegrationTest {
             return queries.execute(ChatbotTool.get_publication_availability,
                 mapper.createObjectNode().put("publicationId",book.toString()).put("branch","CAMPUS_2"),null,"vi");
         });
-        assertThat(answer.answer()).startsWith("Không.").contains("có trong thư viện","Cơ sở 2");
-        assertThat(answer.total()).isZero();
+        assertThat(answer).containsKeys("publication","branch");
+        assertThat(answer.get("total")).isEqualTo(0L);
         var missing=queries.execute(ChatbotTool.get_publication_availability,
             mapper.createObjectNode().put("publicationId",Long.toString(Long.MAX_VALUE)).put("branch","CAMPUS_2"),null,"vi");
-        assertThat(missing.answer()).contains("Chưa tìm thấy sách");
+        assertThat(missing.get("total")).isEqualTo(0L); assertThat(missing).doesNotContainKey("publication");
     }
 
     @Test void catalogPolicyAndPersonalToolsUseRealSqlWithoutChangingBusinessTables() throws Exception {
@@ -155,7 +177,7 @@ class ChatbotReadOnlyIntegrationTest {
             }
             var reply = transaction.execute(status -> queries.execute(tool, arguments, tool.personal ? userId : null, "en"));
             assertThat(reply).isNotNull();
-            assertThat(reply.status()).isEqualTo("ANSWERED");
+            assertThat(reply).containsKeys("records","retrievedAt");
         }
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_interactions", Long.class)).isEqualTo(viewsBefore);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM user_notifications WHERE is_read", Long.class)).isEqualTo(notificationsBefore);
@@ -165,10 +187,10 @@ class ChatbotReadOnlyIntegrationTest {
         Long userId = jdbc.queryForObject("SELECT user_id FROM borrowing_transactions ORDER BY id LIMIT 1", Long.class);
         var reply = transaction.execute(status -> queries.execute(ChatbotTool.get_my_fines, mapper.createObjectNode(), userId, "vi"));
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM fines f JOIN borrowing_transactions t ON t.id=f.transaction_id WHERE t.user_id=? AND f.payment_status='UNPAID'", Long.class, userId);
-        assertThat(reply.total()).isEqualTo(count);
+        assertThat(reply.get("total")).isEqualTo(count);
         var other = transaction.execute(status -> queries.execute(ChatbotTool.get_my_loans, mapper.createObjectNode(), Long.MAX_VALUE, "vi"));
-        assertThat(other.total()).isZero();
-        assertThat(other.cards()).isEmpty();
+        assertThat(other.get("total")).isEqualTo(0L);
+        assertThat((java.util.List<?>)other.get("records")).isEmpty();
     }
     @Test void catalogSearchMatchesWholeTermsAndStoredDescriptionsRatherThanJavaScriptSubstrings() {
         var books=jdbc.queryForList("SELECT id FROM publications ORDER BY id LIMIT 2",Long.class);
@@ -178,11 +200,11 @@ class ChatbotReadOnlyIntegrationTest {
             jdbc.update("UPDATE publications SET title='Java Subjectsentinel',description='Basics',ai_summary=NULL WHERE id=?",books.get(0));
             jdbc.update("UPDATE publications SET title='JavaScript Subjectsentinel',description='Web scripting',ai_summary=NULL WHERE id=?",books.get(1));
             var java=queries.execute(ChatbotTool.search_catalog,mapper.createObjectNode().put("query","Java Subjectsentinel"),null,"en");
-            assertThat(java.cards()).extracting(c->c.path()).containsExactly("/publicpage/book/"+books.get(0));
+            assertThat(records(java)).extracting(c->c.get("url")).containsExactly("/publicpage/book/"+books.get(0));
             jdbc.update("UPDATE publications SET title='Nhập môn',description='Lập trình Subjectsentinel dành cho người mới bắt đầu' WHERE id=?",books.get(0));
             var beginner=queries.execute(ChatbotTool.search_catalog,mapper.createObjectNode().put("query","lap trinh Subjectsentinel"),null,"vi");
-            assertThat(beginner.cards()).extracting(c->c.path()).containsExactly("/publicpage/book/"+books.get(0));
-            assertThat(beginner.cards().getFirst().facts()).anyMatch(f->f.value().contains("người mới bắt đầu"));
+            assertThat(records(beginner)).extracting(c->c.get("url")).containsExactly("/publicpage/book/"+books.get(0));
+            assertThat(records(beginner).getFirst().get("description").toString()).contains("người mới bắt đầu");
         });
     }
     @Test void urgentLoansUseDueDatesEvenBeforeTheOverdueSchedulerUpdatesStatus() {
@@ -194,12 +216,12 @@ class ChatbotReadOnlyIntegrationTest {
             jdbc.update("UPDATE borrowing_transactions SET due_date=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Ho_Chi_Minh')::date+10 WHERE user_id=? AND status IN ('BORROWING','OVERDUE')",user);
             jdbc.update("UPDATE borrowing_transactions SET due_date=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Ho_Chi_Minh')::date-1,status='BORROWING' WHERE id=?",active.get("id"));
             var urgent=queries.execute(ChatbotTool.get_my_loans,mapper.createObjectNode().put("status","DUE_SOON"),user,"vi");
-            assertThat(urgent.total()).isEqualTo(1L);
-            assertThat(urgent.answer()).startsWith("Có, bạn có 1 cuốn");
-            assertThat(urgent.cards()).hasSize(1);
-            assertThat(urgent.cards().getFirst().facts()).anyMatch(f->"Trạng thái".equals(f.label()) && "Quá hạn".equals(f.value()));
+            assertThat(urgent.get("total")).isEqualTo(1L);
+            assertThat(urgent).doesNotContainKey("answer");
+            assertThat(records(urgent)).hasSize(1);
+            assertThat(records(urgent).getFirst()).containsEntry("effective_status","OVERDUE");
             var overdue=queries.execute(ChatbotTool.get_my_loans,mapper.createObjectNode().put("status","OVERDUE"),user,"vi");
-            assertThat(overdue.total()).isEqualTo(1L);
+            assertThat(overdue.get("total")).isEqualTo(1L);
         });
     }
 }

@@ -10,11 +10,11 @@ Một service Redis dùng chung, với namespace tách biệt:
 |---|---|---|
 | Xếp hạng gợi ý theo tài khoản/khoa | `lms:reco:v1:*` | **8 tiếng từ lúc tính**, đọc lại không kéo dài |
 | Khóa tính gợi ý theo tài khoản | `lms:reco:lock:*` | 30 giây, giải phóng theo token |
-| Ngữ cảnh hội thoại theo chủ thể/UUID | `lms:chat:v1:*` | **30 phút không hoạt động**, tối đa 6 lượt hỏi đáp |
-| Khóa xử lý hội thoại | khóa hội thoại + `:lock` | 32 giây |
+| Ngữ cảnh hội thoại theo chủ thể/UUID | `lms:chat:v2:*` | **30 phút không hoạt động**, tối đa 6 lượt hỏi đáp, 64 KiB UTF-8 |
+| Khóa xử lý hội thoại | khóa hội thoại + `:lock` | 100 giây |
 | Phiên bản ngữ cảnh của tài khoản | `lms:chat:owner:*` | 60 phút, gia hạn khi dùng; đổi khi đăng xuất |
 
-Không thêm rate limiter request/phút/ngày. Không đưa dữ liệu nghiệp vụ gốc sang Redis, không thêm Flyway migration.
+Không thêm rate limiter request/phút/ngày, không thêm Flyway migration. Context có thể chứa dữ liệu cá nhân đã được Gemini trình bày trong câu trả lời; không lưu nguyên JSON tool hay snapshot database.
 
 ## 2. Gợi ý sách
 
@@ -35,13 +35,15 @@ WATCH/WISHLIST/BORROWED vẫn được ghi nhận (WATCH vẫn chống trùng 24
 
 FE tạo UUID ngẫu nhiên cho hội thoại, gửi `message`, `language`, `conversationId`. BE tự xác định public hoặc userId từ JWT; không dùng userId do người dùng/AI truyền vào. Khóa public và khóa từng bạn đọc tách biệt.
 
-Lưu tối đa sáu câu hỏi và phản hồi công khai rút gọn (mỗi câu trả lời tối đa 1.200 ký tự), kèm tên/ID ấn phẩm và cơ sở công khai gần nhất. Không lưu kết quả tra cứu cá nhân vào lịch sử gửi Gemini, không lưu số lượng tồn kho làm sự thật cho lượt sau. Lượt sau luôn đọc lại dữ liệu hiện hành.
+Chỉ lưu `{language, turns:[{question,answer}]}`: tối đa sáu câu hỏi và **Markdown nguyên văn** do Gemini trả lời, kể cả câu trả lời chứa dữ liệu cá nhân của chính bạn đọc. Không có bản rút gọn 1.200 ký tự, registry sách, JSON tool hoặc thought signature. Lượt sau gửi các message user/model xen kẽ tới Gemini. Dữ liệu lịch sử chỉ là ngữ cảnh; số lượng tồn kho/công nợ/hạn trả phải truy vấn lại khi cần số liệu hiện tại.
 
-Ví dụ: “Clean Code ở CS2 còn không?” → tra cứu bản sao tại CS2, trả Có/Không và số lượng → “Còn CS1?” dùng lại tham chiếu đầu sách, đọc mới CS1. Nếu có nhiều đầu sách, hỏi lại; không tự chọn bản đầu tiên.
+Giới hạn toàn bộ JSON context **64 KiB UTF-8** (không phải đếm token chính xác). Vượt giới hạn thì bỏ toàn bộ cặp hỏi–đáp cũ nhất, không cắt ngang câu trả lời. Một lượt riêng quá lớn vẫn trả đầy đủ cho FE nhưng không giữ trong Redis. Namespace v2 không đọc định dạng context v1 cũ; key cũ tự hết hạn.
+
+Ví dụ: “Clean Code ở CS2 còn không?” → tool JSON → Gemini trả Có/Không và tên/link sách → “Còn CS1?” đọc tham chiếu trong hỏi–đáp, gọi tool mới cho CS1. Nếu lịch sử không xác định rõ đầu sách thì cần hỏi lại hoặc tìm lại. Call ID/function response/thought signature chỉ được giữ trong request hiện tại, không đưa vào lịch sử Redis.
 
 Hội thoại được khóa khi đang xử lý; lưu bằng compare-and-set để request cũ không ghi đè context mới. Xóa hội thoại tạo tombstone có TTL để request đang chạy không khôi phục context đã xóa. FE xóa/đổi UUID khi người dùng xóa hội thoại, đổi tài khoản/ngôn ngữ; hủy response đang chờ. Đăng xuất hợp lệ làm đổi phiên bản namespace của tài khoản, khiến toàn bộ context cũ không còn được truy cập; dữ liệu cũ tự hết hạn trong tối đa 30 phút. Đóng khung chat chỉ ẩn, không xóa ngữ cảnh.
 
-Đây là bộ nhớ ngắn hạn, không phải lịch sử chat dài hạn hoặc vector tri thức. UUID không thay thế JWT cho dữ liệu cá nhân. Câu hỏi người dùng vẫn có thể được gửi sang Gemini; không nhập mật khẩu/OTP/thông tin nhạy cảm vào câu hỏi.
+Đây là bộ nhớ ngắn hạn, không phải lịch sử chat dài hạn hoặc vector tri thức. UUID không thay thế JWT cho dữ liệu cá nhân. Câu hỏi, hỏi–đáp cũ và JSON tra cứu cá nhân được phép trong lượt hiện tại có thể được gửi sang Gemini theo thiết kế đã chốt. Không gửi mật khẩu/OTP/token. Chi tiết luồng và thông báo quyền riêng tư nguồn revision 3 nằm tại [FAQ_CHATBOT.md](FAQ_CHATBOT.md).
 
 ## 4. Vận hành và dự phòng
 
@@ -66,5 +68,5 @@ Backend CD hiện có `docker compose ... up -d --build backend`: dependency Red
 
 - Unit test: TTL 8 tiếng không trượt theo lượt đọc; cache-first; ranking; PostgreSQL/trending fallback; refresh thành công/thất bại; khóa cạnh tranh; Redis mất kết nối; giới hạn input.
 - Integration Testcontainers: Flyway/PostgreSQL thật + Redis thật; TTL, ownership, sáu lượt, compare-and-set, tombstone, đăng xuất, hết hạn; recommendation hydrate bằng SQL thật.
-- FE: refresh không làm mất danh sách, lỗi/thành công, response muộn sau đổi tài khoản; conversation ID, xóa và nhiều section/tool.
+- FE: refresh không làm mất danh sách, lỗi/thành công, response muộn sau đổi tài khoản; conversation ID, xóa, Markdown an toàn, đóng panel vẫn nhận kết quả, không còn section/thẻ tool.
 - Gemini dùng HTTP mock để kiểm tra hợp đồng, không tuyên bố độ chính xác model từ mock. Cần nghiệm thu thêm các câu Việt/Anh, không dấu, câu nhiều ý và tham chiếu qua nhiều lượt trên provider thật trước khi đánh giá chất lượng production.

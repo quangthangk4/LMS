@@ -26,7 +26,10 @@ public enum ChatbotTool {
     public final boolean personal;
     public final Set<String> arguments;
     ChatbotTool(String description, boolean personal, Set<String> arguments) {
-        this.description = description; this.personal = personal; this.arguments = arguments;
+        this.description = description; this.personal = personal;
+        var allowed=new java.util.HashSet<>(arguments);
+        if(allowed.contains("page")) allowed.add("pageSize");
+        this.arguments = Set.copyOf(allowed);
     }
     public static List<ChatbotTool> available(boolean reader) {
         return Arrays.stream(values()).filter(tool -> reader || !tool.personal).toList();
@@ -36,6 +39,7 @@ public enum ChatbotTool {
         for (String argument : arguments) {
             properties.put(argument, switch (argument) {
                 case "page" -> Map.of("type", "INTEGER", "description", "Zero-based page, 0 for first page; maximum 1000.");
+                case "pageSize" -> Map.of("type","INTEGER","description","Records per page, 1 to 50, default 10. Use pagination to retrieve more records.");
                 case "branch" -> Map.of("type", "STRING", "enum", List.of("CAMPUS_1", "CAMPUS_2", "ANY"),
                     "description", "CAMPUS_1 = Ly Thuong Kiet, CAMPUS_2 = Di An; ANY for both.");
                 case "sort" -> Map.of("type", "STRING", "enum", List.of("newest", "most_borrowed"));

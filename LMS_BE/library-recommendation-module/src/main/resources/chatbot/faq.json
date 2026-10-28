@@ -1,4 +1,4 @@
-{"revision": 2, "entries": [
+{"revision": 3, "entries": [
   {
     "id": "creator",
     "sourcePath": "/publicpage/about",
@@ -370,7 +370,7 @@
     "sourcePath": "/publicpage/privacy-policy",
     "vi": {
       "question": "Chatbot có đọc tài khoản và dữ liệu cá nhân không?",
-      "answer": "Trợ lý dùng hướng dẫn, chính sách và thông tin sách của Library74. Khi đăng nhập bằng tài khoản bạn đọc, bạn có thể tra cứu sách đang mượn, lịch sử, phí phạt, đặt trước, yêu thích và thông báo của chính mình. Trợ lý chỉ đọc, không thực hiện giao dịch hoặc đọc dữ liệu của người khác. Câu hỏi, ngữ cảnh hội thoại gần đây và hướng dẫn tham khảo có thể được gửi đến dịch vụ AI; kết quả tra cứu cá nhân được hiển thị trực tiếp từ hệ thống và không gửi đến AI. Không gửi mật khẩu hoặc mã xác minh trong câu hỏi. Ngữ cảnh tối đa sáu lượt hỏi đáp được giữ tạm trong Redis, hết hạn sau 30 phút không hoạt động; xóa hội thoại hoặc đăng xuất sẽ làm mất hiệu lực ngữ cảnh.",
+      "answer": "Trợ lý dùng hướng dẫn, chính sách và thông tin sách của Library74. Bạn đọc đã đăng nhập có thể tra cứu sách đang mượn, lịch sử, phí phạt, đặt trước, yêu thích và thông báo của chính mình. Trợ lý chỉ đọc, không thực hiện giao dịch hoặc truy cập dữ liệu của người khác. Câu hỏi, lịch sử hội thoại và kết quả tra cứu được cấp quyền, kể cả dữ liệu cá nhân cần cho câu hỏi, được gửi đến dịch vụ Gemini để trợ lý trả lời. Không gửi mật khẩu hoặc mã xác minh trong câu hỏi. Redis giữ tối đa sáu lượt hỏi và trả lời Markdown, hết hạn sau 30 phút không hoạt động; không lưu lịch sử gọi tool hoặc JSON kết quả vào context. Xóa hội thoại hoặc đăng xuất làm mất hiệu lực ngữ cảnh.",
       "aliases": [
         "Chatbot có thể làm gì?",
         "Trợ lý có truy cập database không?"
@@ -378,7 +378,7 @@
     },
     "en": {
       "question": "Does this chatbot access account records?",
-      "answer": "The assistant uses Library74 guidance, policies and book information. Signed-in readers can look up their own loans, history, fines, reservations, wishlist and notifications. It is read-only and cannot perform transactions or access other people's records. Questions, recent conversation context and reference guidance may be sent to an AI provider; personal lookup results are displayed directly from the system and are not sent to AI. Do not enter passwords or verification codes. Up to six turns of context are held temporarily in Redis, expiring after 30 minutes of inactivity; clearing the conversation or signing out invalidates it.",
+      "answer": "The assistant uses Library74 guidance, policies and book information. Signed-in readers can look up their own loans, history, fines, reservations, wishlist and notifications. It is read-only and cannot perform transactions or access other people's records. Questions, conversation history and authorized lookup results, including personal data needed for the question, are sent to Gemini to compose the reply. Do not enter passwords or verification codes. Redis keeps up to six question-and-Markdown-answer turns, expiring after 30 minutes of inactivity; tool calls and JSON results are not stored in this context. Clearing the conversation or signing out invalidates it.",
       "aliases": [
         "What can this assistant do?"
       ]

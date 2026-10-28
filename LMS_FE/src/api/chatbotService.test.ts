@@ -17,14 +17,14 @@ test('sends only current question and language, with cancellation and a bounded 
   chatbotService.suggestions('vi', signal);
   expect(axiosInstance.get).toHaveBeenCalledWith('/chatbot/faqs', { params: { language: 'vi' }, signal });
   chatbotService.ask('How do I borrow?', 'en', signal);
-  expect(axiosInstance.post).toHaveBeenCalledWith('/chatbot/messages', { message: 'How do I borrow?', language: 'en' }, { signal, timeout: 30000 });
+  expect(axiosInstance.post).toHaveBeenCalledWith('/chatbot/messages', { message: 'How do I borrow?', language: 'en' }, { signal, timeout: 90000 });
 });
 
 test('personal messages use an authenticated route and never accept an identity argument', () => {
   expect(isPublicRequest({ method: 'post', url: '/chatbot/my/messages' })).toBe(false);
   expect(isPublicRequest({ method: 'get', url: '/help/content' })).toBe(true);
   chatbotService.ask('My fines', 'en', undefined, true);
-  expect(axiosInstance.post).toHaveBeenCalledWith('/chatbot/my/messages', { message: 'My fines', language: 'en' }, { signal: undefined, timeout: 30000 });
+  expect(axiosInstance.post).toHaveBeenCalledWith('/chatbot/my/messages', { message: 'My fines', language: 'en' }, { signal: undefined, timeout: 90000 });
 });
 
 test('conversation IDs are sent without client history and clearing respects authenticated scope', () => {

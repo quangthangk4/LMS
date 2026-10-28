@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.library.recommendation.application.chatbot.FaqChatbotService;
-import com.library.recommendation.application.chatbot.FaqContent;
 import com.library.recommendation.application.chatbot.ChatbotService;
 import com.library.recommendation.application.chatbot.ChatbotReply;
 import com.library.shared.util.SecurityEvaluator;
@@ -46,14 +45,13 @@ class FaqChatbotControllerTest {
 
     @Test void validRequestIsTrimmedAndReturnsReviewedAnswer() throws Exception {
         when(chat.answer("Cách mượn sách?", "vi", null)).thenReturn(new ChatbotReply(
-            "ANSWERED", "borrow", "Reviewed answer", "Borrow", "/publicpage/guide",
-            new FaqContent("Summary", List.of("Sign in"), List.of(), ""), List.of(), List.of(), null, null, null));
+            "ANSWERED", "**Đăng nhập**, rồi tìm sách.\n\n[Xem hướng dẫn](/publicpage/guide#borrow)", "markdown", null,null,false));
         mvc.perform(post("/api/v1/chatbot/messages").contentType(MediaType.APPLICATION_JSON)
             .content(mapper.writeValueAsString(Map.of("message", " Cách mượn sách? ", "language", "vi"))))
             .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
-            .andExpect(jsonPath("$.data.answer").value("Reviewed answer"))
-            .andExpect(jsonPath("$.data.content.summary").value("Summary"))
-            .andExpect(jsonPath("$.data.content.steps[0]").value("Sign in"));
+            .andExpect(jsonPath("$.data.answer").value("**Đăng nhập**, rồi tìm sách.\n\n[Xem hướng dẫn](/publicpage/guide#borrow)"))
+            .andExpect(jsonPath("$.data.format").value("markdown"))
+            .andExpect(jsonPath("$.data.cards").doesNotExist());
     }
 
     @ParameterizedTest @ValueSource(strings = {"", "   "})
@@ -73,7 +71,7 @@ class FaqChatbotControllerTest {
 
     @Test void providerUnavailableReturnsTheFaqFallbackWithoutALocalQuotaError() throws Exception {
         when(chat.answer(anyString(), any(), isNull())).thenReturn(
-            ChatbotReply.message("UNAVAILABLE", "Please choose a suggested question."));
+            new ChatbotReply("UNAVAILABLE", "The AI service is unavailable.","markdown","AI_UNAVAILABLE",null,false));
         mvc.perform(post("/api/v1/chatbot/messages").contentType(MediaType.APPLICATION_JSON)
             .content("{\"message\":\"hello\"}")).andExpect(status().isOk())
             .andExpect(jsonPath("$.data.status").value("UNAVAILABLE"));
@@ -89,7 +87,7 @@ class FaqChatbotControllerTest {
         when(security.isAuthenticated()).thenReturn(true);
         when(security.hasAnyRole("STUDENT", "FACULTY")).thenReturn(true);
         when(security.getCurrentUserId()).thenReturn(7L);
-        when(chat.answer("My fines", "en", 7L)).thenReturn(ChatbotReply.message("ANSWERED", "Your fines"));
+        when(chat.answer("My fines", "en", 7L)).thenReturn(new ChatbotReply("ANSWERED", "Your fines","markdown",null,null,false));
         mvc.perform(post("/api/v1/chatbot/my/messages").contentType(MediaType.APPLICATION_JSON)
             .content("{\"message\":\"My fines\",\"language\":\"en\",\"userId\":999}"))
             .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"));
